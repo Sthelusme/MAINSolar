@@ -206,11 +206,10 @@ int main(void)
     while(1){
         //SETUP GPS READ functionality**********************************
         /* Selecting P3.2 and P3.3 in UART mode
-         * this is for communication to the GPS
-         */
+         * this is for communication to the GPS*/
         MAP_GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P3,
                                                        GPIO_PIN2 | GPIO_PIN3, GPIO_PRIMARY_MODULE_FUNCTION);
-        //GPS fix setup
+        //GPS fix pin setup
         GPIO_setAsInputPinWithPullUpResistor(GPIO_PORT_P4, GPIO_PIN3);
 
         /* Select P1.2 and P1.3 in UART mode
@@ -228,7 +227,7 @@ int main(void)
         MAP_Interrupt_enableInterrupt(INT_EUSCIA2); //Enable Interrupt for clock
         MAP_Interrupt_enableMaster();
 
-        //Setup: Sensors Analog Input*****************************************
+        //Setup: Sensors Analog Digital Converter Input*****************************************
 
         /* Initializing ADC (MCLK/1/1) */
         MAP_ADC14_enableModule();
@@ -272,33 +271,38 @@ int main(void)
         fflush(stdout);
         printf("Setup completed\n");
         fflush(stdout);
-        /* ldr check
+
+        //ldr check
         read_sensors();
-        int temp = fmin(sensorBuffer[0],sensorBuffer[1]); //
-        int minVal = fmin(sensorBuffer[2],sensorBuffer[3]); //
+        int temp = fmin(sensorBuffer[0],sensorBuffer[1]);
+        int minVal = fmin(sensorBuffer[2],sensorBuffer[3]);
         minVal = fmin(temp,minVal);
-        if (minVal>9000){//
+        if (minVal>9000){// finds the minimum value and check if it has enough sunlight for GPS mode
             GPSmode=true;
             fflush(stdout);
             printf("GPS mode\n");
             fflush(stdout);
         }
-        else
+        else{
             GPSmode=false;
         fflush(stdout);
         printf("LDR mode\n");
-        fflush(stdout);
-         */
-        GPSmode=true;
+        fflush(stdout);}
+
+        //GPSmode=true;//used to select which mode
         if(GPSmode){
             //GPS mode
             //enable GPS
             GPIO_setOutputLowOnPin(GPIO_PORT_P4,GPIO_PIN1);
-            //wait for fix, it will get stuck in a loop until GPS fixes to satalite
+            //wait for fix, it will get stuck in a loop until GPS fixes to satellite
             GPIO_setAsInputPin(GPIO_PORT_P4,GPIO_PIN3);
             bool fix=false;
             uint32_t count;
             while(!fix){
+                /*This checks if the GPS Fixes to the satalite.
+                 * for this GPS, this happens when the Fix pin toggles every 15seconds
+                 * if not fixed, it will toggle every second
+                 * */
                 if(GPIO_getInputPinValue(GPIO_PORT_P4,GPIO_PIN3)==1){
                     while(!GPIO_getInputPinValue(GPIO_PORT_P4,GPIO_PIN3)){
                         count++;
@@ -328,7 +332,7 @@ int main(void)
             compare_LDR();  // compare LDR readings to move motors
         }
 
-        gotosleep(0);  //makes the board sleep for minutes
+        gotosleep(5);  //makes the board sleep for minutes
     }
 }
 
