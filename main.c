@@ -1,4 +1,4 @@
-/******************************************************************************
+/************************************************************************
   MSP432- 11.14.2020
 
   TASK SUMMARY
@@ -17,21 +17,26 @@
         sleep mode
         night time mode?
 
- MSP432P401
+Devices:
+    MSP432P401
+    Adafruit Ultimate GPS
 
 PIN---------Function
-P5.5  |<--- A0 (Analog Input) LDR 0, NE              sensorbuffer[0]
-P5.4  |<--- A1 (Analog Input) LDR 1, NW              sensorbuffer[1]
-P5.2  |<--- A3 (Analog Input) LDR 3, SE              sensorbuffer[3]
-P5.1  |<--- A4 (Analog Input) Potentiometer NS       sensorbuffer[4]
-P5.0  |<--- A5 (Analog Input) Potentiometer EW       sensorbuffer[5]
-P4.7  |<----A6 (Analog Input) LDR 2, SW              sensorbuffer[2]
+P5.5  |<--- A0 (Analog Input) LDR 0, NE              sensorBuffer[0]
+P5.4  |<--- A1 (Analog Input) LDR 1, NW              sensorBuffer[1]
+P5.2  |<--- A3 (Analog Input) LDR 3, SE              sensorBuffer[3]
+P5.1  |<--- A4 (Analog Input) Potentiometer NS       sensorBuffer[4]
+P5.0  |<--- A5 (Analog Input) Potentiometer EW       sensorBuffer[5]
+P4.7  |<----A6 (Analog Input) LDR 2, SW              sensorBuffer[2]
 P3.2--------RX(TX from device)
 P3.3--------TX(RX from device)
+P4.1--------GPS enable
+P4.3--------GPS Fix reading
+
 P1.2--------UART:pc
 P1.3--------UART:pc
 P3.6--------Sensor enable
-P4.3--------Pot enable
+P3.7--------Pot enable
 
 OUT 1 ----P2.7--------North-----NS+
 OUT 2 ----P2.6--------South-----NS-
@@ -39,7 +44,17 @@ OUT 3 ----P2.4--------East------EW+
 OUT 4 ----P5.6--------West------EW-
 
 
- ***************************************************************************************************************************************************/
+ ****************************************************************************/
+/*
+psuedo GPS sentence for testing
+ char gpsdata[] = {'$','G','P','R','M','C',',','2','2','1','5','0','3','.','0','0','0',',','A',',','3','3','5','6','.','3','1','8','4',',','N',',','0','8','4','3','1',
+                                   '.','3','6','7','0',',','W',',','0','.','4','2',',','1','0','9','.','1','4',',','2','0','1','0','2','0'};
+ *$GPGGA,203203.000,3356.3184,N,08431.3670,W,2,06,1.42,292.0,M,-30.8,M,0000,0000*52
+ *$GPRMC,203203.000,A,3356.3184,N,08431.3670,W,0.42,109.14,151020,,,D*74
+ *01234567890123456789012345678901234567890123456789012345678901234567890123456789012345
+ *0         1         2         3         4         5         6         7         8
+
+ */
 
 /* DriverLib Includes */
 #include <ti/devices/msp432p4xx/driverlib/driverlib.h>
@@ -106,16 +121,6 @@ static uint16_t sensorBuffer[6]; //
 //delay part
 const int mtime= 3000000/1000;//clock speed /10^3 - clock speed in miliseconds
 
-/*
-psuedo GPS sentence for testing
- char gpsdata[] = {'$','G','P','R','M','C',',','2','2','1','5','0','3','.','0','0','0',',','A',',','3','3','5','6','.','3','1','8','4',',','N',',','0','8','4','3','1',
-                                   '.','3','6','7','0',',','W',',','0','.','4','2',',','1','0','9','.','1','4',',','2','0','1','0','2','0'};
- *$GPGGA,203203.000,3356.3184,N,08431.3670,W,2,06,1.42,292.0,M,-30.8,M,0000,0000*52
- *$GPRMC,203203.000,A,3356.3184,N,08431.3670,W,0.42,109.14,151020,,,D*74
- *01234567890123456789012345678901234567890123456789012345678901234567890123456789012345
- *0         1         2         3         4         5         6         7         8
-
- */
 
 void delay(int wait_time_ms){
     for(;wait_time_ms>0;wait_time_ms--){
@@ -140,8 +145,6 @@ void moveW(int time);
 void compare_LDR(void);// compare LDR readings to move motors
 void gotosleep(int time);//makes the motor sleep for minutes
 void GPS_align_panel(void); //move panels to align
-
-
 
 /*Configuration setup*/
 const eUSCI_UART_ConfigV1 uartConfig = //UART configuration settings.
@@ -187,6 +190,19 @@ int main(void)
     MAP_REF_A_setReferenceVoltage(REF_A_VREF2_5V);
     MAP_REF_A_enableReferenceVoltage();
 
+    //Motor pin setup
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN7); //North
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN6); //South
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN4); //East
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P5, GPIO_PIN6); //West
+
+    //GPS enable
+    GPIO_setAsOutputPin(GPIO_PORT_P4, GPIO_PIN3);
+
+    //Sensor enable pin
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN6);
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN7);
+
     while(1){
         //SETUP GPS READ functionality**********************************
         /* Selecting P3.2 and P3.3 in UART mode
@@ -194,6 +210,9 @@ int main(void)
          */
         MAP_GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P3,
                                                        GPIO_PIN2 | GPIO_PIN3, GPIO_PRIMARY_MODULE_FUNCTION);
+        //GPS fix setup
+        GPIO_setAsInputPinWithPullUpResistor(GPIO_PORT_P4, GPIO_PIN3);
+
         /* Select P1.2 and P1.3 in UART mode
          * this is for the communication to the computer
          * */
@@ -215,29 +234,14 @@ int main(void)
         MAP_ADC14_enableModule();
         MAP_ADC14_initModule(ADC_CLOCKSOURCE_MCLK, ADC_PREDIVIDER_1, ADC_DIVIDER_1,
                              0);
+
         /* Configuring GPIOs for Analog In */
         MAP_GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P5,
                                                        GPIO_PIN5 | GPIO_PIN4 | GPIO_PIN2 | GPIO_PIN1
                                                        | GPIO_PIN0, GPIO_TERTIARY_MODULE_FUNCTION);
         MAP_GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P4,
                                                        GPIO_PIN7, GPIO_TERTIARY_MODULE_FUNCTION);
-        /*Set sensors as input
-            MSP432P401
-         *             ------------------
-         *         /|\|                  |
-         *          | |                  |
-         *          --|RST         P5.5  |<--- A0 (Analog Input) LDR 1, NW    sensorbuffer 0
-         *            |            P5.4  |<--- A1 (Analog Input) LDR 2, SW    sensorbuffer 1
-         *            |           XP5.3  |XXXX A2 (Analog Input) not using
-         *            |            P5.2  |<--- A3 (Analog Input) LDR 3, SE    sensorbuffer 3
-         *            |            P5.1  |<--- A4 (Analog Input) Potentiometer NS  sensorbuffer 4
-         *            |            P5.0  |<--- A5 (Analog Input) Potentiometer EW  sensorbuffer 5
-         *            |            P4.7  |<----A6 (Analog Input) LDR 0, NE   sensorbuffer 2
-         *
-         * */
 
-        //Sensor enable pin
-        MAP_GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN6);
         /* Configuring ADC Memory (ADC_MEM0 - ADC_MEM7 (A0 - A7)  with no repeat)
          * with internal 2.5v reference */
         MAP_ADC14_configureMultiSequenceMode(ADC_MEM0, ADC_MEM5, false);
@@ -260,44 +264,69 @@ int main(void)
         MAP_ADC14_configureConversionMemory(ADC_MEM5,
                                             ADC_VREFPOS_INTBUF_VREFNEG_VSS,
                                             ADC_INPUT_A5, false);
-        //Motor pin setup
-        MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN7); //North
-        MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN6); //South
-        MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN4); //East
-        MAP_GPIO_setAsOutputPin(GPIO_PORT_P5, GPIO_PIN6); //West
 
         GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
         GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
         GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
         GPIO_setOutputLowOnPin(GPIO_PORT_P5, GPIO_PIN6); //West
         fflush(stdout);
-        printf("setup completed\n");
+        printf("Setup completed\n");
         fflush(stdout);
-
+        /* ldr check
         read_sensors();
-        if (fmin(sensorBuffer[0],sensorBuffer[1],sensorBuffer[2],sensorBuffer[3])>9000){//  if it is really dark
-            bool GPSmode=true;
+        int temp = fmin(sensorBuffer[0],sensorBuffer[1]); //
+        int minVal = fmin(sensorBuffer[2],sensorBuffer[3]); //
+        minVal = fmin(temp,minVal);
+        if (minVal>9000){//
+            GPSmode=true;
+            fflush(stdout);
+            printf("GPS mode\n");
+            fflush(stdout);
         }
         else
-            bool GPSmode=false
-
-            if(GPSmode){
-                //GPS mode
-                while(rxWriteIndex<800){
-                    //waits for the GPS buffer to fill up
+            GPSmode=false;
+        fflush(stdout);
+        printf("LDR mode\n");
+        fflush(stdout);
+         */
+        GPSmode=true;
+        if(GPSmode){
+            //GPS mode
+            //enable GPS
+            GPIO_setOutputLowOnPin(GPIO_PORT_P4,GPIO_PIN1);
+            //wait for fix, it will get stuck in a loop until GPS fixes to satalite
+            GPIO_setAsInputPin(GPIO_PORT_P4,GPIO_PIN3);
+            bool fix=false;
+            uint32_t count;
+            while(!fix){
+                if(GPIO_getInputPinValue(GPIO_PORT_P4,GPIO_PIN3)==1){
+                    while(!GPIO_getInputPinValue(GPIO_PORT_P4,GPIO_PIN3)){
+                        count++;
+                    }
                 }
-                //UART_disableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // disable the interrupt for the UART GPS reading
-                readGPS(); // first time reading on startup - will read from rxBuffer into gpsdata
-                parseGPS();   // collect GPS data and convert to proper data types values
-                calc_azimuth_zenith();   //calculates the zenith and azimuth angle
-                GPS_align_panel(); //move panels to align
+                if(count>300000){
+                    fflush(stdout);
+                    printf("GPS Fixed\n");
+                    fflush(stdout);
+                    fix=true;}
             }
-            else{
 
-                // LDR mode
-                read_sensors(); // read inputs from all sensors
-                compare_LDR();  // compare LDR readings to move motors
+
+            while(rxWriteIndex<800){
+                //waits for the GPS buffer to fill up
             }
+            //UART_disableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // disable the interrupt for the UART GPS reading
+            readGPS(); // first time reading on startup - will read from rxBuffer into gpsdata
+            parseGPS();   // collect GPS data and convert to proper data types values
+            calc_azimuth_zenith();   //calculates the zenith and azimuth angle
+            GPS_align_panel(); //move panels to align
+        }
+        else{
+
+            // LDR mode
+            read_sensors(); // read inputs from all sensors
+            compare_LDR();  // compare LDR readings to move motors
+        }
 
         gotosleep(0);  //makes the board sleep for minutes
     }
@@ -476,6 +505,7 @@ void parseGPS()
 
 void read_sensors(){
     GPIO_setOutputHighOnPin(GPIO_PORT_P3, GPIO_PIN6);
+    GPIO_setOutputHighOnPin(GPIO_PORT_P3, GPIO_PIN7);
     /* Zero-filling buffer */
     memset(sensorBuffer, 0x00, 6 * sizeof(uint16_t));
     /* Setting up the sample timer to automatically step through the sequence
@@ -493,6 +523,7 @@ void read_sensors(){
     //MAP_ADC14_disableSampleTimer(ADC_AUTOMATIC_ITERATION);
     //MAP_ADC14_disableConversion();
     GPIO_setOutputLowOnPin(GPIO_PORT_P3, GPIO_PIN6);
+    GPIO_setOutputLowOnPin(GPIO_PORT_P3, GPIO_PIN7);
 }
 
 void moveN(int time){
@@ -643,18 +674,18 @@ void gotosleep(int time){
     /* Terminating all remaining pins to minimize power consumption. This is
             done by register accesses for simplicity and to minimize branching API
             calls */
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_PA, PIN_ALL16);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_PB, PIN_ALL16);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_PC, PIN_ALL16);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_PD, PIN_ALL16);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_PE, PIN_ALL16);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_PJ, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_PA, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_PB, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_PC, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_PD, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_PE, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_PJ, PIN_ALL16);
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P1, PIN_ALL16);
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, PIN_ALL16);
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P3, PIN_ALL16);
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P4, PIN_ALL16);
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P5, PIN_ALL16);
+    MAP_GPIO_setAsOutputPin(GPIO_PORT_P6, PIN_ALL16);
+    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P1, PIN_ALL16);
+    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P2, PIN_ALL16);
+    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P3, PIN_ALL16);
+    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P4, PIN_ALL16);
+    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P5, PIN_ALL16);
+    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P6, PIN_ALL16);
 
     /* Configuring LFXTOUT and LFXTIN for XTAL operation and P1.0 for LED */
     MAP_GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_PJ,
@@ -695,7 +726,7 @@ void GPS_align_panel(void){
 
     //find current panel position using potentiometers
     read_sensors();
-    int potNS=sensorBuffer[5], potEW=sensorBuffer[6];
+    int potNS=sensorBuffer[4], potEW=sensorBuffer[5];
 
     //Linear relationship between angle and potentiometer reading
     alpha_p=0.0127*potNS-25.82; //formula to convert pot value to angle of the panel
