@@ -28,13 +28,26 @@ P5.2  |<--- A3 (Analog Input) LDR 3, SE              sensorBuffer[3]
 P5.1  |<--- A4 (Analog Input) Potentiometer NS       sensorBuffer[4]
 P5.0  |<--- A5 (Analog Input) Potentiometer EW       sensorBuffer[5]
 P4.7  |<----A6 (Analog Input) LDR 2, SW              sensorBuffer[2]
+
+POTNS
+    G- MC
+    BR- GND
+    BL- VOLTAGE
+
+
+POTEW
+    G - POWER
+    BR- MC
+    BL - GND
+
+
 P3.2--------RX(TX from device)
 P3.3--------TX(RX from device)
 P4.1--------GPS enable
 P4.3--------GPS Fix reading
 
-P1.2--------UART:pc
-P1.3--------UART:pc
+P1.2--------UART:pc (not a pin, USB cord)
+P1.3--------UART:pc (not a pin, USB cord)
 P3.6--------Sensor enable
 P3.7--------Pot enable
 
@@ -42,6 +55,8 @@ OUT 1 ----P2.7--------North-----NS+
 OUT 2 ----P2.6--------South-----NS-
 OUT 3 ----P2.4--------East------EW+
 OUT 4 ----P5.6--------West------EW-
+++ contract motor
++- extend motor
 
 
  ****************************************************************************/
