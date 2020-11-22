@@ -32,7 +32,6 @@ P4.7  |<----A6 (Analog Input) LDR 2, SW              sensorBuffer[2]
 P3.2--------RX(TX from device)
 P3.3--------TX(RX from device)
 P4.1--------GPS enable
-P1.5--------GPS Fix reading
 
 P1.2--------UART:pc (not a pin, USB cord)
 P1.3--------UART:pc (not a pin, USB cord)
@@ -50,10 +49,10 @@ POTEW
     G - MC
     BR - GND
 
-OUT 1 ----P2.7--------North-----NS+
-OUT 2 ----P2.6--------South-----NS-
-OUT 3 ----P2.4--------East------EW+
-OUT 4 ----P5.6--------West------EW-
+IN 1 ----P2.7--------North-----NS+
+IN 2 ----P2.6--------South-----NS-
+IN 3 ----P2.4--------East------EW+
+IN 4 ----P5.6--------West------EW-
 ++ contract motor
 +- extend motor
 
@@ -94,7 +93,7 @@ bool GPSmode=false;
 int century = 2000; // 21st century
 float deg; // from last group this was the latitude brought in from GPS
 float degWhole; // last group - adjusted lat deg to be in deg, not deg-minutes
-float hour = 0.00, min, sec;// current time
+float hour = 7, min, sec;// current time
 float latdeg, latmin, lat_min_decimal, latitude_deg, lat_rad;//latitude values
 float longdeg, longmin, long_min_decimal, longitude_deg;// longitude values
 int day, month, year;// the current day, month, year
@@ -103,7 +102,7 @@ const float PI = 3.14159265;
 double hour_angle_deg, hour_angle_rad;// angle of the sun determined from the hour
 float solar_decl_angle_deg,solar_decl_angle_rad; //
 float beta;// for solar tilt
-float Azimuth;
+int Azimuth;
 float a,b,d,e,f,g,h,i,m,y;
 float ernie, isis, ony, cass;
 float E_deg, i_rad, i_deg;
@@ -121,11 +120,12 @@ int daysToMonth[2][12] =
 //GPS data storing variables
 char rxBuffer[800];
 char gpsdata[80];
-//psuedo GPS sentence for testing
+
 /*
-char gpsdata[] = {'$','G','P','R','M','C',',','1','7','1','5','0','3','.','0','0','0',',','A',',','3','3','5','6','.','3','1','8','4',',','N',',','0','8','4','3','1',
-                                               '.','3','6','7','0',',','W',',','0','.','4','2',',','1','0','9','.','1','4',',','2','0','1','0','2','0'};
- */
+//psuedo GPS sentence for testing
+char gpsdata[] = {'$','G','P','R','M','C',',','1','3','3','0','0','0','.','0','0','0',',','A',',','3','3','0','0','.','0','0','0','0',',','N',',','0','8','4','0','0',
+ '.','0','0','0','0',',','W',',','0','.','4','2',',','1','0','9','.','1','4',',','2','0','1','1','2','0'};
+*/
 uint16_t rxWriteIndex=0;
 uint8_t data;
 static uint16_t sensorBuffer[6]; //
@@ -293,9 +293,9 @@ int main(void)
         fflush(stdout);}
          */
 
-        //GPSmode=true;//used to select which mode
+        GPSmode=false;//used to select which mode
         if(GPSmode){
-            //GPS mo
+            //GPS mode
             fix=false;
             rxWriteIndex=0;
             //SETUP GPS READ functionality**********************************
@@ -320,7 +320,8 @@ int main(void)
             //GPS fix check
             //UART_disableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // disable the interrupt for the UART GPS reading
 
-            do{
+            // comment out for GPS manual put in
+            do{//checks for active data
                 //waits for the GPS buffer to fill up
                 while(rxWriteIndex<800){
                 }
@@ -340,12 +341,14 @@ int main(void)
                     fflush(stdout);
                     printf("GPS Data Void\n");
                     fflush(stdout);
-                    }
+                }
             }while(!fix);
+
             parseGPS();   // collect GPS data and convert to proper data types values
             calc_azimuth_zenith();   //calculates the zenith and azimuth angle
             GPS_align_panel(); //move panels to align
         }
+
         else{
 
             // LDR mode
@@ -356,7 +359,6 @@ int main(void)
 
         //Sleep Mode***********************************************************************************************************
         //gotosleep(2);  //makes the board sleep for minutes
-        //GPSmode=!GPSmode;
     }
 }
 
@@ -436,27 +438,14 @@ bool is_leap_year()
 }
 
 
-void get_hour_angle()
-{
-    if (hour < 12)
-    {
-        hour_angle_deg = 15.00*(-(hour + min/60.00) - 12.00); // negative hour angle
-    }
-    else
-    {
-        hour_angle_deg = 15.00*(hour + min/60.00 - 12.00); // positive hour angle
-    }
-
-    hour_angle_rad = hour_angle_deg*PI/180.00;
-}
-
 
 void calc_azimuth_zenith()
 {
 
     //this function finds the day number, hour angle, and solar declination angle of the sun
     daynumber = daysToMonth[is_leap_year()][month-1] + day; // calculate the daynumber of the year
-    get_hour_angle();
+    hour_angle_deg = 15.00*((hour + min/60.00) - 12.00);
+    hour_angle_rad = hour_angle_deg*PI/180.00;
 
     //SDA = 23.45*sin(360.00/365.00*(284 + daynumber)); // solar declination angle, where () is from last group
     //                     |-------isis------------|
@@ -485,7 +474,13 @@ void calc_azimuth_zenith()
     zenith_deg = zenith_rad * 180.00/PI;
     beta = 90.00 - zenith_deg; // for solar tilt
 
-    Azimuth=180-acos(-((sin(lat_rad)*cos(zenith_rad))-sin(solar_decl_angle_rad))/(cos(lat_rad)*sin(zenith_rad)));
+    float Azimuth_p1=acos((((sin(lat_rad)*cos(zenith_rad))-sin(solar_decl_angle_rad))/(cos(lat_rad)*sin(zenith_rad))))*180/PI;//in degrees
+    if (hour_angle_deg>0){
+        Azimuth=fmod(Azimuth_p1+180,360);
+    }
+    else{
+        Azimuth=fmod(540-Azimuth_p1,360);
+    }
 }
 
 
@@ -552,9 +547,6 @@ void read_sensors(){
     //MAP_ADC14_disableConversion();
     GPIO_setOutputLowOnPin(GPIO_PORT_P3, GPIO_PIN6);
     GPIO_setOutputLowOnPin(GPIO_PORT_P3, GPIO_PIN7);
-    fflush(stdout);
-    printf("Sensors Scanned\n");
-    fflush(stdout);
 }
 
 void moveN(int time){
@@ -617,7 +609,7 @@ void compare_LDR(void){
     int minVal = 0;
     int minIdx=0;
     int light_tol=0;
-    int thresh = 500; // this is the tolerance between LDRs
+    int thresh = 10; // this is the tolerance between LDRs
     int adj_sensorNS = 0;
     int adj_sensorEW = 0;
     int move_time=1000; // the time allowed for motor movement
@@ -655,34 +647,30 @@ void compare_LDR(void){
     bool moveenabled = true;
     // the higher the reading on a LDR means the least reading on light
     while(moveenabled){
-        int stop_count = 100;
+        int stop_countNS = 200;
+        int stop_countEW = 200;
         // compare the max val to determined light tolerance
         if (minVal > light_tol){
             //      if met, continue
-
             // compare highest value with the E/W adjacent pin
-            while(( sensorBuffer[adj_sensorEW] - sensorBuffer[minIdx] > thresh)&& stop_count){
-
+            while(( sensorBuffer[adj_sensorEW] - sensorBuffer[minIdx] > thresh)&& stop_countEW){
                 if(minIdx == 0 || minIdx == 3 )
                     moveE(move_time); // tilt panel's east side downward
                 else
                     moveW(move_time); // tilts upward
-                stop_count--;
+                stop_countEW--;
                 read_sensors();
             }
-            stop_count = 100;
-            // compare highest value with the N/S adjacent pin
-            while(( sensorBuffer[adj_sensorNS] - sensorBuffer[minIdx] > thresh) && stop_count){
 
+            // compare highest value with the N/S adjacent pin
+            while(( sensorBuffer[adj_sensorNS] - sensorBuffer[minIdx] > thresh) && stop_countNS){
                 if(minIdx < 2)
                     moveN(move_time); // tilt panel's north side downward 1s
                 else
                     moveS(move_time); // tilts upward
-                stop_count--;
+                stop_countNS--;
                 read_sensors();
-
             }
-
             moveenabled = false; // panel has been adjusted to LDR equalization
         }
     }
@@ -757,8 +745,6 @@ void GPS_align_panel(void){
     //alpha is angle between normal vector and x-axis (+x is N, -x is S; motor1)
     //beta is angle between normal vector and y-axis(+y is E, -y is W; motor2)
 
-
-
     //find current panel position using potentiometers
     read_sensors();
     int potNS=sensorBuffer[4], potEW=sensorBuffer[5];
@@ -769,7 +755,7 @@ void GPS_align_panel(void){
 
     //convert zenith and azimuth to Cartesian
     // Find Cartesian coordinates from spherical angles
-    float x_cart = cos(Azimuth*PI/180)*sin(zenith_deg*PI/180); // rho=p=1
+    float x_cart = cos(Azimuth*PI/180)*sin(zenith_deg*PI/180); // rho=p=1 orig cos(Azimuth*PI/180)
     float y_cart = sin(Azimuth*PI/180)*sin(zenith_deg*PI/180);
 
     // Find cartesian angles from cartesian coordinates
@@ -781,34 +767,32 @@ void GPS_align_panel(void){
     float beta_s = acos(y_cart)*180/PI; // output in degrees
 
 
-    float length_EW_p = (beta_p - 63.44)/5.585;// Current length of actuator
-    float length_NS_p = (alpha_p - 45.96)/9.210;// Current length of actuator
+    float length_EW_p = (beta_p - 63.44)/5.585;// Current length (in) of actuator
+    float length_NS_p = (alpha_p - 45.96)/9.210;// Current length (in)of actuator
 
-    float length_EW_s = (beta_s - 63.44)/5.585;// length needed to align with sun
-    float length_NS_s = (alpha_s - 45.96)/9.210;// length needed to align with sun
+    float length_EW_s = (beta_s - 63.44)/5.585;// length (in) needed to align with sun
+    float length_NS_s = (alpha_s - 45.96)/9.210;// length (in) needed to align with sun
 
-    float delta_length_EW = length_EW_p - length_EW_s; // positive means retract
-    float delta_length_NS = length_NS_p - length_NS_s;
+    float delta_length_EW = length_EW_s - length_EW_p; // positive means retract
+    float delta_length_NS = length_NS_s - length_NS_p;
 
     float motorNS_time = fabs(delta_length_NS/0.05);
-    float motorEW_time = fabs(delta_length_EW/0.05);
+    float motorEW_time = fabs(delta_length_EW/0.04375);
 
     //move motors
     //float alpha_dif=alpha_s-alpha_p;
     if (fabs(delta_length_NS)>0.02){  //change zero to allow for alignment
-        if (delta_length_NS>0)
+        if (delta_length_NS<0)
             moveN(motorNS_time*1000);
         else
             moveS(motorNS_time*1000);
     }
     //float beta_dif=beta_s-beta_p;
     if (fabs(delta_length_EW)>0.02){  //change zero to allow for alignment
-        if (delta_length_EW>0)
+        if (delta_length_EW<0)
             moveE(motorEW_time*1000);
         else
             moveW(motorEW_time*1000);
     }
-    fflush(stdout);
-    printf("Movement Complete\n");
-    fflush(stdout);
+    return;
 }
