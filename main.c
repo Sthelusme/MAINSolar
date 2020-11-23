@@ -273,25 +273,24 @@ int main(void)
 
         //Moving phase************************************************************
 
-        /*checks ldr for brightness to determine mode
-        //ldr check
+        //checks ldr for brightness to determine mode
         read_sensors();
-        int temp = fmin(sensorBuffer[0],sensorBuffer[1]);
+        int temp = fmin(sensorBuffer[0],sensorBuffer[1]);//finds the minimum value
         int minVal = fmin(sensorBuffer[2],sensorBuffer[3]);
         minVal = fmin(temp,minVal);
-        if (minVal>9000){// finds the minimum value and check if it has enough sunlight for GPS mode
-            GPSmode=true;
+
+        if (minVal>9000){// finds the max value and check if it has enough sunlight for GPS mode
+            GPSmode=false;//turns on LDR mode
+            fflush(stdout);
+            printf("LDR mode\n");
+            fflush(stdout);}
+        else{
+            GPSmode=true;// make it turn to gps mode
             fflush(stdout);
             printf("GPS mode\n");
             fflush(stdout);
-        }
-        else{
-            GPSmode=false;
+            }
 
-        fflush(stdout);
-        printf("LDR mode\n");
-        fflush(stdout);}
-         */
 
         GPSmode=false;//used to select which mode
         if(GPSmode){
@@ -358,7 +357,7 @@ int main(void)
         }
 
         //Sleep Mode***********************************************************************************************************
-        //gotosleep(2);  //makes the board sleep for minutes
+        gotosleep(2);  //makes the board sleep for minutes
     }
 }
 
@@ -527,8 +526,8 @@ void parseGPS()
 }
 
 void read_sensors(){
-    GPIO_setOutputHighOnPin(GPIO_PORT_P3, GPIO_PIN6);
-    GPIO_setOutputHighOnPin(GPIO_PORT_P3, GPIO_PIN7);
+    GPIO_setOutputHighOnPin(GPIO_PORT_P3, GPIO_PIN6);//turns on the LDR
+    GPIO_setOutputHighOnPin(GPIO_PORT_P3, GPIO_PIN7);//turns on the POT
     /* Zero-filling buffer */
     memset(sensorBuffer, 0x00, 6 * sizeof(uint16_t));
     /* Setting up the sample timer to automatically step through the sequence
@@ -606,14 +605,15 @@ void moveW(int time){
 
 void compare_LDR(void){
     int temp = 0;
-    int minVal = 0;
-    int minIdx=0;
+    int maxVal = 0;
+    int maxIdx = 0;
     int light_tol=0;
     int thresh = 10; // this is the tolerance between LDRs
     int adj_sensorNS = 0;
     int adj_sensorEW = 0;
     int move_time=1000; // the time allowed for motor movement
-
+    int stop_countNS = 200;
+    int stop_countEW = 200;
 
     /*
     int sensorNE=sensorBuffer[0]; // LDR0
@@ -622,22 +622,22 @@ void compare_LDR(void){
     int sensorSE=sensorBuffer[3]; // LDR3
      */
 
-    // find the min value among the LDRs
-    temp = fmin(sensorBuffer[0],sensorBuffer[1]); //
-    minVal = fmin(sensorBuffer[2],sensorBuffer[3]); //
-    minVal = fmin(temp,minVal);
+    // find the max value among the LDRs
+    temp = fmax(sensorBuffer[0],sensorBuffer[1]); //
+    maxVal = fmax(sensorBuffer[2],sensorBuffer[3]); //
+    maxVal = fmax(temp,maxVal);
     int i = 0;
     for (;i<4;i++){ // get the index of where the max val occurs
-        if (minVal == sensorBuffer[i]){
-            minIdx = i;
+        if (maxVal == sensorBuffer[i]){
+            maxIdx = i;
             break;
         }
     }
 
-    adj_sensorNS = 3 - minIdx; //gets the north/south adjacent sensor
+    adj_sensorNS = 3 - maxIdx; //gets the north/south adjacent sensor
 
     // to get the east/west adjacent sensor
-    switch(minIdx){
+    switch(maxIdx){
     case 0: adj_sensorEW = 1; break;
     case 1: adj_sensorEW = 0; break;
     case 2: adj_sensorEW = 3; break;
@@ -645,16 +645,14 @@ void compare_LDR(void){
     }
 
     bool moveenabled = true;
-    // the higher the reading on a LDR means the least reading on light
+    // the higher the reading on a LDR means high intensity light
     while(moveenabled){
-        int stop_countNS = 200;
-        int stop_countEW = 200;
         // compare the max val to determined light tolerance
-        if (minVal > light_tol){
+        if (maxVal > light_tol){
             //      if met, continue
             // compare highest value with the E/W adjacent pin
-            while(( sensorBuffer[adj_sensorEW] - sensorBuffer[minIdx] > thresh)&& stop_countEW){
-                if(minIdx == 0 || minIdx == 3 )
+            while((  sensorBuffer[maxIdx] - sensorBuffer[adj_sensorEW] > thresh)&& stop_countEW){
+                if(maxIdx == 0 || maxIdx == 3 )
                     moveE(move_time); // tilt panel's east side downward
                 else
                     moveW(move_time); // tilts upward
@@ -663,8 +661,8 @@ void compare_LDR(void){
             }
 
             // compare highest value with the N/S adjacent pin
-            while(( sensorBuffer[adj_sensorNS] - sensorBuffer[minIdx] > thresh) && stop_countNS){
-                if(minIdx < 2)
+            while((  sensorBuffer[maxIdx] - sensorBuffer[adj_sensorNS]> thresh) && stop_countNS){
+                if(maxIdx < 2)
                     moveN(move_time); // tilt panel's north side downward 1s
                 else
                     moveS(move_time); // tilts upward
