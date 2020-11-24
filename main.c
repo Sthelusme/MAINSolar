@@ -35,6 +35,7 @@ P4.1--------GPS enable
 
 P1.2--------UART:pc (not a pin, USB cord)
 P1.3--------UART:pc (not a pin, USB cord)
+
 P3.6--------Sensor enable
 P3.7--------Pot enable
 
@@ -91,25 +92,20 @@ bool GPSmode=false;
 // where deg refers to degrees and rad is radians
 // parsing variables
 int century = 2000; // 21st century
-float deg; // from last group this was the latitude brought in from GPS
-float degWhole; // last group - adjusted lat deg to be in deg, not deg-minutes
 float hour = 7, min, sec;// current time
-float latdeg, latmin, lat_min_decimal, latitude_deg, lat_rad;//latitude values
-float longdeg, longmin, long_min_decimal, longitude_deg;// longitude values
+float latdeg, latmin, lat_min_decimal, latitude_deg, lat_rad;//latitude value holder
+float longdeg, longmin, long_min_decimal, longitude_deg;// longitude value holder
 int day, month, year;// the current day, month, year
 int timezone = -5; // from UTC
 const float PI = 3.14159265;
 double hour_angle_deg, hour_angle_rad;// angle of the sun determined from the hour
-float solar_decl_angle_deg,solar_decl_angle_rad; //
-float beta;// for solar tilt
-int Azimuth;
-float a,b,d,e,f,g,h,i,m,y;
-float ernie, isis, ony, cass;
-float E_deg, i_rad, i_deg;
-float degrad, zenith_deg, zenith_rad, DaytimeAdjust;
-bool updateEnabled = true;
+float solar_decl_angle_deg,solar_decl_angle_rad; //the solar declination angle
+float altitude_angle_deg;// for solar tilt
+float Azimuth;
+float a,b,d,e,f,g,h;
+float fract_year;
+float zenith_deg, zenith_rad;
 char conv_buffer[4];
-float SDA;
 int daynumber;
 int daysToMonth[2][12] =
 {  //days from jan1, where row 0 is non-leap year, row 1 is leap year
@@ -131,12 +127,10 @@ uint8_t data;
 static uint16_t sensorBuffer[6]; //
 bool fix=false;
 
-
 //delay part
-const int mtime= 3000000/1000;//clock speed /10^3 - clock speed in miliseconds
-
 
 void delay(int wait_time_ms){
+    const int mtime= 3000000/1000;//clock speed /10^3 - clock speed in miliseconds
     for(;wait_time_ms>0;wait_time_ms--){
         __delay_cycles(mtime);
     }
@@ -144,22 +138,19 @@ void delay(int wait_time_ms){
 }
 
 //function declarations
-int convert_toHundreds(char hundreds, char tens, char ones);
+int convert_toHundreds(char hundreds, char tens, char ones);//converts character arrays into int numbers
 bool is_leap_year(void);// checks if there is a leap year
-void get_hour_angle(void); //
 void calc_azimuth_zenith(void);//calculates the zenith and azimuth angle
 void parseGPS(void);// collect GPS data and convert to proper data types values
 void readGPS();// will pull correct sentence from rxBuffer
-
 void read_sensors(void);//read inputs from all sensors
-void moveN(int time);
-void moveS(int time);
-void moveE(int time);
-void moveW(int time);
+void moveN(int time);//retract the NS motor turning the normal of the panel towards the north
+void moveS(int time);//extends the NS motor turning the normal of the panel towards the south
+void moveE(int time);//retract the EW motor turning the normal of the panel towards the east
+void moveW(int time);//extends the EW motor turning the normal of the panel towards the west
 void compare_LDR(void);// compare LDR readings to move motors
 void gotosleep(int time);//makes the motor sleep for minutes
-void GPS_align_panel(void); //move panels to align
-bool GPS_datacheck(void);
+void GPS_align_panel(void); //move panels to align with calculated sun position
 
 /*Configuration setup*/
 const eUSCI_UART_ConfigV1 uartConfig = //UART configuration settings.
@@ -176,10 +167,8 @@ const eUSCI_UART_ConfigV1 uartConfig = //UART configuration settings.
  // EUSCI_A_UART_8_BIT_LEN                  // 8 bit data length
 };
 
-// Sleep mode calendar setup
 
-RTC_C_Calendar calendarTime =
-{
+RTC_C_Calendar calendarTime ={// Sleep mode calendar setup
  0,     /* Seconds */
  0,     /* Minutes */
  0,     /* Hour */
@@ -194,70 +183,70 @@ int main(void)
 {
     //setup************************************************************
     /* Halting WDT  */
-    MAP_WDT_A_holdTimer();
-    MAP_Interrupt_disableSleepOnIsrExit();
+    WDT_A_holdTimer();
+    Interrupt_disableSleepOnIsrExit();
     /* Setting DCO to 12MHz */
     CS_setDCOCenteredFrequency(CS_DCO_FREQUENCY_12);
     /* Configuring UART Module */
-    MAP_UART_initModule(EUSCI_A2_BASE, &uartConfig);
-    MAP_UART_initModule(EUSCI_A0_BASE, &uartConfig);
+    UART_initModule(EUSCI_A2_BASE, &uartConfig);
+    UART_initModule(EUSCI_A0_BASE, &uartConfig);
     /* Setting reference voltage to 2.5  and enabling reference */
-    MAP_REF_A_setReferenceVoltage(REF_A_VREF2_5V);
-    MAP_REF_A_enableReferenceVoltage();
+    REF_A_setReferenceVoltage(REF_A_VREF2_5V);
+    REF_A_enableReferenceVoltage();
 
     //Motor pin setup
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN7); //North
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN6); //South
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN4); //East
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P5, GPIO_PIN6); //West
+    GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN7); //North
+    GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN6); //South
+    GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN4); //East
+    GPIO_setAsOutputPin(GPIO_PORT_P5, GPIO_PIN6); //West
 
     //GPS enable
     GPIO_setAsOutputPin(GPIO_PORT_P4, GPIO_PIN3);
 
     //Sensor enable pin
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN6);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN7);
-    MAP_Interrupt_enableMaster();
+    GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN6);
+    GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN7);
+    Interrupt_enableMaster();
 
     while(1){
         //Setup after waking up
         /* Enabling interrupts */
-        MAP_Interrupt_enableInterrupt(INT_EUSCIA2); //Enable Interrupt for clock
+        Interrupt_enableInterrupt(INT_EUSCIA2); //Enable Interrupt for clock
 
         //Setup: Sensors Analog Digital Converter Input*****************************************
 
         /* Initializing ADC (MCLK/1/1) */
-        MAP_ADC14_enableModule();
-        MAP_ADC14_initModule(ADC_CLOCKSOURCE_MCLK, ADC_PREDIVIDER_1, ADC_DIVIDER_1,
+        ADC14_enableModule();
+        ADC14_initModule(ADC_CLOCKSOURCE_MCLK, ADC_PREDIVIDER_1, ADC_DIVIDER_1,
                              0);
 
         /* Configuring GPIOs for Analog In */
-        MAP_GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P5,
+        GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P5,
                                                        GPIO_PIN5 | GPIO_PIN4 | GPIO_PIN2 | GPIO_PIN1
                                                        | GPIO_PIN0, GPIO_TERTIARY_MODULE_FUNCTION);
-        MAP_GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P4,
+        GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P4,
                                                        GPIO_PIN7, GPIO_TERTIARY_MODULE_FUNCTION);
 
         /* Configuring ADC Memory (ADC_MEM0 - ADC_MEM7 (A0 - A7)  with no repeat)
          * with internal 2.5v reference */
-        MAP_ADC14_configureMultiSequenceMode(ADC_MEM0, ADC_MEM5, false);
-        MAP_ADC14_configureConversionMemory(ADC_MEM0,
+        ADC14_configureMultiSequenceMode(ADC_MEM0, ADC_MEM5, false);
+        ADC14_configureConversionMemory(ADC_MEM0,
                                             ADC_VREFPOS_INTBUF_VREFNEG_VSS,
                                             ADC_INPUT_A0, false);
-        MAP_ADC14_configureConversionMemory(ADC_MEM1,
+        ADC14_configureConversionMemory(ADC_MEM1,
                                             ADC_VREFPOS_INTBUF_VREFNEG_VSS,
                                             ADC_INPUT_A1, false);
         //P4.7 will be mapped to MEM2 or sensor buffer[2]
-        MAP_ADC14_configureConversionMemory(ADC_MEM2,
+        ADC14_configureConversionMemory(ADC_MEM2,
                                             ADC_VREFPOS_INTBUF_VREFNEG_VSS,
                                             ADC_INPUT_A6, false);
-        MAP_ADC14_configureConversionMemory(ADC_MEM3,
+        ADC14_configureConversionMemory(ADC_MEM3,
                                             ADC_VREFPOS_INTBUF_VREFNEG_VSS,
                                             ADC_INPUT_A3, false);
-        MAP_ADC14_configureConversionMemory(ADC_MEM4,
+        ADC14_configureConversionMemory(ADC_MEM4,
                                             ADC_VREFPOS_INTBUF_VREFNEG_VSS,
                                             ADC_INPUT_A4, false);
-        MAP_ADC14_configureConversionMemory(ADC_MEM5,
+        ADC14_configureConversionMemory(ADC_MEM5,
                                             ADC_VREFPOS_INTBUF_VREFNEG_VSS,
                                             ADC_INPUT_A5, false);
 
@@ -292,7 +281,7 @@ int main(void)
             }
 
 
-        GPSmode=false;//used to select which mode
+        GPSmode=true;//used to select which mode
         if(GPSmode){
             //GPS mode
             fix=false;
@@ -300,20 +289,20 @@ int main(void)
             //SETUP GPS READ functionality**********************************
             /* Selecting P3.2 and P3.3 in UART mode
              * this is for communication to the GPS*/
-            MAP_GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P3,
+            GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P3,
                                                            GPIO_PIN2 | GPIO_PIN3, GPIO_PRIMARY_MODULE_FUNCTION);
             //GPS fix pin setup
 
             /* Select P1.2 and P1.3 in UART mode
              * this is for the communication to the computer
              * */
-            MAP_GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P1,
+            GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P1,
                                                            GPIO_PIN2 | GPIO_PIN3, GPIO_PRIMARY_MODULE_FUNCTION);
 
             /* Enable UART module */
-            MAP_UART_enableModule(EUSCI_A2_BASE);
-            MAP_UART_enableModule(EUSCI_A0_BASE);
-            MAP_UART_enableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // enable the interupt for the UART GPS reading
+            UART_enableModule(EUSCI_A2_BASE);
+            UART_enableModule(EUSCI_A0_BASE);
+            UART_enableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // enable the interupt for the UART GPS reading
             GPIO_setOutputHighOnPin(GPIO_PORT_P4,GPIO_PIN1);//turns on GPS
 
             //GPS fix check
@@ -367,19 +356,19 @@ int main(void)
 void EUSCIA2_IRQHandler(void) //fill up the rxBuffer array
 {
     //9600 Baud
-    uint32_t status = MAP_UART_getEnabledInterruptStatus(EUSCI_A2_BASE);
+    uint32_t status = UART_getEnabledInterruptStatus(EUSCI_A2_BASE);
 
-    MAP_UART_clearInterruptFlag(EUSCI_A2_BASE,status);
+    UART_clearInterruptFlag(EUSCI_A2_BASE,status);
 
     if(status & EUSCI_A_UART_RECEIVE_INTERRUPT_FLAG)
     {
-        data=MAP_UART_receiveData(EUSCI_A2_BASE);
+        data=UART_receiveData(EUSCI_A2_BASE);
         rxBuffer[rxWriteIndex++]=data;
         //UART_transmitData(EUSCI_A0_BASE, data);
         // printf("%c",data);
         if(rxWriteIndex>=800){
-            //MAP_Interrupt_disableMaster();// disables all the interrupts
-            //MAP_PCM_gotoLPM0InterruptSafe();//allows board to go to sleep mode with interupt enable
+            //Interrupt_disableMaster();// disables all the interrupts
+            //PCM_gotoLPM0InterruptSafe();//allows board to go to sleep mode with interupt enable
 
         }
     }
@@ -406,6 +395,7 @@ void readGPS(){
 
 int convert_toHundreds(char hundreds, char tens, char ones)
 {
+    //converts character arrays into int numbers
     int intOut = 0;
     conv_buffer[0] = hundreds;
     conv_buffer[1] = tens;
@@ -419,6 +409,7 @@ int convert_toHundreds(char hundreds, char tens, char ones)
 
 bool is_leap_year()
 {
+    // checks if there is a leap year
     //leap year condition
     if (year % 4 == 0)
     {
@@ -440,38 +431,35 @@ bool is_leap_year()
 
 void calc_azimuth_zenith()
 {
+    /*this funtion finds:
+        * day number,
+        * hour angle,
+        * solar declination angle of the sun
+        * zenith
+        * azimuth
+       */
 
-    //this function finds the day number, hour angle, and solar declination angle of the sun
+    //find the day number, hour angle, and solar declination angle of the sun
     daynumber = daysToMonth[is_leap_year()][month-1] + day; // calculate the daynumber of the year
     hour_angle_deg = 15.00*((hour + min/60.00) - 12.00);
     hour_angle_rad = hour_angle_deg*PI/180.00;
-
-    //SDA = 23.45*sin(360.00/365.00*(284 + daynumber)); // solar declination angle, where () is from last group
-    //                     |-------isis------------|
-    //             |----ernie----------------------| ==> (Edegree)
-    //delta = 23.45* Edegree                         ==> (Dradian) --> solar_decl_angle_deg and solar_decl_angle_deg
-
-    isis = 360.00/(is_leap_year() ? 366.00 :365.00)*(284 + daynumber); // if it is a leap year use 366 else use 365
-    ernie = sin(isis*PI/180);//find sine and convert to radians
-    E_deg = ernie;// * (180.00/PI); // convert to degrees
-    solar_decl_angle_deg = 23.45 * E_deg;
+    fract_year = 360.00/(is_leap_year() ? 366.00 :365.00)*(284 + daynumber); // if it is a leap year use 366 else use 365
+    solar_decl_angle_deg = 23.45 * sin(fract_year *PI/180);//find sine and convert to radians
     solar_decl_angle_rad = solar_decl_angle_deg * PI/180.00;
 
     //calculates the zenith and azimuth angle
     // zenith = asin(sin(gps_lat)*sin(SDA) + cos(gps_lat)*cos(SDA)*cos*(hour_angle))
-
     lat_rad = latitude_deg * (PI/180.00);
-    degrad = lat_rad;
-    a = sin(degrad); // where degrad is the gps lat in radian
+    a = sin(lat_rad); // where degrad is the gps lat in radian
     b = sin(solar_decl_angle_rad);
-    d = cos(degrad);
+    d = cos(lat_rad);
     e = cos(solar_decl_angle_rad);
     f = cos(hour_angle_rad); // cos(Hradian)
     g = sin(hour_angle_rad); // sin(Hradian_
     zenith_rad = acos((a*b)+(d*e*f)); // acos((a*b)+(d*e*f)); measured from zenith(vertical)
     h=cos(zenith_rad);
     zenith_deg = zenith_rad * 180.00/PI;
-    beta = 90.00 - zenith_deg; // for solar tilt
+    altitude_angle_deg = 90.00 - zenith_deg; // for solar tilt
 
     float Azimuth_p1=acos((((sin(lat_rad)*cos(zenith_rad))-sin(solar_decl_angle_rad))/(cos(lat_rad)*sin(zenith_rad))))*180/PI;//in degrees
     if (hour_angle_deg>0){
@@ -485,6 +473,8 @@ void calc_azimuth_zenith()
 
 void parseGPS()
 {
+    // collect GPS data and convert to proper data types values
+
     // pull out all the required information from the GPS data
     hour = convert_toHundreds('0',gpsdata[7],gpsdata[8]) + timezone;
     min = convert_toHundreds('0',gpsdata[9],gpsdata[10]);
@@ -526,6 +516,9 @@ void parseGPS()
 }
 
 void read_sensors(){
+    //read inputs from all sensors
+
+    //enable sensor pins
     GPIO_setOutputHighOnPin(GPIO_PORT_P3, GPIO_PIN6);//turns on the LDR
     GPIO_setOutputHighOnPin(GPIO_PORT_P3, GPIO_PIN7);//turns on the POT
     /* Zero-filling buffer */
@@ -533,22 +526,24 @@ void read_sensors(){
     /* Setting up the sample timer to automatically step through the sequence
      * convert.
      */
-    MAP_ADC14_enableSampleTimer(ADC_AUTOMATIC_ITERATION);
+    ADC14_enableSampleTimer(ADC_AUTOMATIC_ITERATION);
 
     /* Triggering the start of the sample */
-    MAP_ADC14_enableConversion();
-    MAP_ADC14_toggleConversionTrigger();
+    ADC14_enableConversion();
+    ADC14_toggleConversionTrigger();
 
     //fill up array with results
-    MAP_ADC14_getMultiSequenceResult(sensorBuffer);
+    ADC14_getMultiSequenceResult(sensorBuffer);
     //turn off to save power
-    //MAP_ADC14_disableSampleTimer(ADC_AUTOMATIC_ITERATION);
-    //MAP_ADC14_disableConversion();
+    ADC14_disableSampleTimer();
+    ADC14_disableConversion();
+    //turns off sensor pins
     GPIO_setOutputLowOnPin(GPIO_PORT_P3, GPIO_PIN6);
     GPIO_setOutputLowOnPin(GPIO_PORT_P3, GPIO_PIN7);
 }
 
 void moveN(int time){
+    //retract the NS motor turning the normal of the panel towards the north
     GPIO_setOutputHighOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -562,6 +557,7 @@ void moveN(int time){
     GPIO_setOutputLowOnPin(GPIO_PORT_P5, GPIO_PIN6); //West
 }
 void moveS(int time){
+    //extends the NS motor turning the normal of the panel towards the south
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputHighOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -575,6 +571,7 @@ void moveS(int time){
     GPIO_setOutputLowOnPin(GPIO_PORT_P5, GPIO_PIN6); //West
 }
 void moveE(int time){
+    //retract the EW motor turning the normal of the panel towards the east
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputHighOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -589,6 +586,7 @@ void moveE(int time){
 }
 
 void moveW(int time){
+    //extends the EW motor turning the normal of the panel towards the west
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -604,15 +602,16 @@ void moveW(int time){
 
 
 void compare_LDR(void){
-    int temp = 0;
-    int maxVal = 0;
-    int maxIdx = 0;
-    int light_tol=0;
+    // compare LDR readings to move motors
+    int temp = 0;//value holder
+    int maxVal = 0;//maximum value and sunlight
+    int maxIdx = 0;//LDR sensor with most sun
+    int light_tol=0;//amount of sunlight needed for operation
     int thresh = 10; // this is the tolerance between LDRs
-    int adj_sensorNS = 0;
-    int adj_sensorEW = 0;
+    int adj_sensorNS = 0;//sensor that is north or south adjacent to max value
+    int adj_sensorEW = 0;//sensor that is east or west adjacent to max value
     int move_time=1000; // the time allowed for motor movement
-    int stop_countNS = 200;
+    int stop_countNS = 200;// Amount of of attempts the motor has to align
     int stop_countEW = 200;
 
     /*
@@ -679,13 +678,14 @@ void compare_LDR(void){
 
 void gotosleep(int time){
     // Sleep mode setup
+    //makes the motor sleep for (time) minutes
     /* If this flag has been set, it means that the device has already
      * been into LPM3.5 mode before.
      */
-    if (MAP_ResetCtl_getPCMSource() & RESET_LPM35)
+    if (ResetCtl_getPCMSource() & RESET_LPM35)
     {
         /* Clearing the PCM Reset flags */
-        MAP_ResetCtl_clearPCMFlags();
+        ResetCtl_clearPCMFlags();
 
         /* Unlocking the latched GPIO/LPM configuration flag */
         PCM->CTL1 = PCM_CTL1_KEY_VAL;
@@ -693,53 +693,54 @@ void gotosleep(int time){
     /* Terminating all remaining pins to minimize power consumption. This is
             done by register accesses for simplicity and to minimize branching API
             calls */
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P1, PIN_ALL16);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P2, PIN_ALL16);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P3, PIN_ALL16);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P4, PIN_ALL16);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P5, PIN_ALL16);
-    MAP_GPIO_setAsOutputPin(GPIO_PORT_P6, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P1, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P2, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P3, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P4, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P5, PIN_ALL16);
-    MAP_GPIO_setOutputLowOnPin(GPIO_PORT_P6, PIN_ALL16);
+    GPIO_setAsOutputPin(GPIO_PORT_P1, PIN_ALL16);
+    GPIO_setAsOutputPin(GPIO_PORT_P2, PIN_ALL16);
+    GPIO_setAsOutputPin(GPIO_PORT_P3, PIN_ALL16);
+    GPIO_setAsOutputPin(GPIO_PORT_P4, PIN_ALL16);
+    GPIO_setAsOutputPin(GPIO_PORT_P5, PIN_ALL16);
+    GPIO_setAsOutputPin(GPIO_PORT_P6, PIN_ALL16);
+    GPIO_setOutputLowOnPin(GPIO_PORT_P1, PIN_ALL16);
+    GPIO_setOutputLowOnPin(GPIO_PORT_P2, PIN_ALL16);
+    GPIO_setOutputLowOnPin(GPIO_PORT_P3, PIN_ALL16);
+    GPIO_setOutputLowOnPin(GPIO_PORT_P4, PIN_ALL16);
+    GPIO_setOutputLowOnPin(GPIO_PORT_P5, PIN_ALL16);
+    GPIO_setOutputLowOnPin(GPIO_PORT_P6, PIN_ALL16);
 
     /* Configuring LFXTOUT and LFXTIN for XTAL operation and P1.0 for LED */
-    MAP_GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_PJ,
+    GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_PJ,
                                                    GPIO_PIN0, GPIO_PRIMARY_MODULE_FUNCTION);
 
     /* Setting LFXT to lowest drive strength and current consumption */
-    MAP_CS_startLFXT(CS_LFXT_DRIVE0);
+    CS_startLFXT(CS_LFXT_DRIVE0);
 
     /* Disabling high side voltage monitor/supervisor */
-    MAP_PSS_disableHighSide();
+    PSS_disableHighSide();
 
     /* Initializing RTC to 11/19/2013 10:10:00 */
-    MAP_RTC_C_initCalendar(&calendarTime, RTC_C_FORMAT_BINARY);
+    RTC_C_initCalendar(&calendarTime, RTC_C_FORMAT_BINARY);
 
     /* Setting alarm for one minute later */
-    MAP_RTC_C_setCalendarAlarm(calendarTime.minutes+time,0,1,1);
+    RTC_C_setCalendarAlarm(calendarTime.minutes+time,0,1,1);
 
     /* Setting up interrupts for the RTC. Once we enable interrupts, if there
      * was a pending interrupt due to a wake-up from partial shutdown then the
      * ISR will immediately fire and blinkLED will be set to true.*/
-    MAP_RTC_C_enableInterrupt(RTC_C_CLOCK_ALARM_INTERRUPT);
-    MAP_Interrupt_enableInterrupt(INT_RTC_C);
-    MAP_Interrupt_enableMaster();
-    MAP_RTC_C_startClock();
-    MAP_PCM_shutdownDevice(PCM_LPM35_VCORE0);
+    RTC_C_enableInterrupt(RTC_C_CLOCK_ALARM_INTERRUPT);
+    Interrupt_enableInterrupt(INT_RTC_C);
+    Interrupt_enableMaster();
+    RTC_C_startClock();
+    PCM_shutdownDevice(PCM_LPM35_VCORE0);
 
 }
 
 /* RTC ISR */
 void RTC_C_IRQHandler(void)
 {
-    MAP_RTC_C_clearInterruptFlag(MAP_RTC_C_getInterruptStatus());
+    RTC_C_clearInterruptFlag(RTC_C_getInterruptStatus());
 }
 
 void GPS_align_panel(void){
+    //move panels to align with calculated sun position
     //alpha is angle between normal vector and x-axis (+x is N, -x is S; motor1)
     //beta is angle between normal vector and y-axis(+y is E, -y is W; motor2)
 
