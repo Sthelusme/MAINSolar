@@ -262,6 +262,9 @@ int main(void)
 
         //Moving phase************************************************************
 
+        GPIO_setAsOutputPin(GPIO_PORT_P2,GPIO_PIN2);
+        GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN2);
+        GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN0);
         //checks ldr for brightness to determine mode
         read_sensors();
         int temp = fmin(sensorBuffer[0],sensorBuffer[1]);//finds the minimum value
@@ -281,7 +284,7 @@ int main(void)
             }
 
 
-        GPSmode=true;//used to select which mode
+        GPSmode=false;//used to select which mode
         if(GPSmode){
             //GPS mode
             fix=false;
@@ -611,8 +614,8 @@ void compare_LDR(void){
     int adj_sensorNS = 0;//sensor that is north or south adjacent to max value
     int adj_sensorEW = 0;//sensor that is east or west adjacent to max value
     int move_time=1000; // the time allowed for motor movement
-    int stop_countNS = 200;// Amount of of attempts the motor has to align
-    int stop_countEW = 200;
+    int stop_countNS = 400;// Amount of of attempts the motor has to align
+    int stop_countEW = 400;
 
     /*
     int sensorNE=sensorBuffer[0]; // LDR0
