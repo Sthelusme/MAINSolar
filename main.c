@@ -82,11 +82,14 @@ IN 4 ----P5.6--------West------EW-
 #include <string.h>
 #include <time.h>
 
-/*Mode
+/*GPSmode
  * true= GPS mode
  * false = LDR mode
+ * if Hybridmode= true, it will change GPSmode
  * */
-bool GPSmode=false;
+bool Hybridmode=false;
+bool GPSmode=true;
+
 
 /* GLOBAL VARIABLES */
 // where deg refers to degrees and rad is radians
@@ -122,6 +125,7 @@ char gpsdata[80];
 char gpsdata[] = {'$','G','P','R','M','C',',','1','3','3','0','0','0','.','0','0','0',',','A',',','3','3','0','0','.','0','0','0','0',',','N',',','0','8','4','0','0',
  '.','0','0','0','0',',','W',',','0','.','4','2',',','1','0','9','.','1','4',',','2','0','1','1','2','0'};
 */
+
 uint16_t rxWriteIndex=0;
 uint8_t data;
 static uint16_t sensorBuffer[6]; //
@@ -169,13 +173,13 @@ const eUSCI_UART_ConfigV1 uartConfig = //UART configuration settings.
 
 
 RTC_C_Calendar calendarTime ={// Sleep mode calendar setup
- 0,     /* Seconds */
- 0,     /* Minutes */
- 0,     /* Hour */
- 1,     /* Day of Week */
- 1,     /* Day */
- 1,     /* Month */
- 2020   /* Year */
+                              0,     /* Seconds */
+                              0,     /* Minutes */
+                              0,     /* Hour */
+                              1,     /* Day of Week */
+                              1,     /* Day */
+                              1,     /* Month */
+                              2020   /* Year */
 };
 
 /*************************************************************************************************************************************************************/
@@ -218,37 +222,37 @@ int main(void)
         /* Initializing ADC (MCLK/1/1) */
         ADC14_enableModule();
         ADC14_initModule(ADC_CLOCKSOURCE_MCLK, ADC_PREDIVIDER_1, ADC_DIVIDER_1,
-                             0);
+                         0);
 
         /* Configuring GPIOs for Analog In */
         GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P5,
-                                                       GPIO_PIN5 | GPIO_PIN4 | GPIO_PIN2 | GPIO_PIN1
-                                                       | GPIO_PIN0, GPIO_TERTIARY_MODULE_FUNCTION);
+                                                   GPIO_PIN5 | GPIO_PIN4 | GPIO_PIN2 | GPIO_PIN1
+                                                   | GPIO_PIN0, GPIO_TERTIARY_MODULE_FUNCTION);
         GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P4,
-                                                       GPIO_PIN7, GPIO_TERTIARY_MODULE_FUNCTION);
+                                                   GPIO_PIN7, GPIO_TERTIARY_MODULE_FUNCTION);
 
         /* Configuring ADC Memory (ADC_MEM0 - ADC_MEM7 (A0 - A7)  with no repeat)
          * with internal 2.5v reference */
         ADC14_configureMultiSequenceMode(ADC_MEM0, ADC_MEM5, false);
         ADC14_configureConversionMemory(ADC_MEM0,
-                                            ADC_VREFPOS_INTBUF_VREFNEG_VSS,
-                                            ADC_INPUT_A0, false);
+                                        ADC_VREFPOS_INTBUF_VREFNEG_VSS,
+                                        ADC_INPUT_A0, false);
         ADC14_configureConversionMemory(ADC_MEM1,
-                                            ADC_VREFPOS_INTBUF_VREFNEG_VSS,
-                                            ADC_INPUT_A1, false);
+                                        ADC_VREFPOS_INTBUF_VREFNEG_VSS,
+                                        ADC_INPUT_A1, false);
         //P4.7 will be mapped to MEM2 or sensor buffer[2]
         ADC14_configureConversionMemory(ADC_MEM2,
-                                            ADC_VREFPOS_INTBUF_VREFNEG_VSS,
-                                            ADC_INPUT_A6, false);
+                                        ADC_VREFPOS_INTBUF_VREFNEG_VSS,
+                                        ADC_INPUT_A6, false);
         ADC14_configureConversionMemory(ADC_MEM3,
-                                            ADC_VREFPOS_INTBUF_VREFNEG_VSS,
-                                            ADC_INPUT_A3, false);
+                                        ADC_VREFPOS_INTBUF_VREFNEG_VSS,
+                                        ADC_INPUT_A3, false);
         ADC14_configureConversionMemory(ADC_MEM4,
-                                            ADC_VREFPOS_INTBUF_VREFNEG_VSS,
-                                            ADC_INPUT_A4, false);
+                                        ADC_VREFPOS_INTBUF_VREFNEG_VSS,
+                                        ADC_INPUT_A4, false);
         ADC14_configureConversionMemory(ADC_MEM5,
-                                            ADC_VREFPOS_INTBUF_VREFNEG_VSS,
-                                            ADC_INPUT_A5, false);
+                                        ADC_VREFPOS_INTBUF_VREFNEG_VSS,
+                                        ADC_INPUT_A5, false);
 
         //sets motors to low
         GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
@@ -257,50 +261,53 @@ int main(void)
         GPIO_setOutputLowOnPin(GPIO_PORT_P5, GPIO_PIN6); //West
 
         fflush(stdout);
-        printf("Setup completed\n");
+        printf("Setup completed!\n");
         fflush(stdout);
 
         //Moving phase************************************************************
 
+        //Blue light= Awake indicator
         GPIO_setAsOutputPin(GPIO_PORT_P2,GPIO_PIN2);
         GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN2);
-        GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN0);
         //checks ldr for brightness to determine mode
-        read_sensors();
-        int temp = fmin(sensorBuffer[0],sensorBuffer[1]);//finds the minimum value
-        int minVal = fmin(sensorBuffer[2],sensorBuffer[3]);
-        minVal = fmin(temp,minVal);
 
-        if (minVal>9000){// finds the max value and check if it has enough sunlight for GPS mode
-            GPSmode=false;//turns on LDR mode
+        //Hybrid mode - checks for enough sunlight
+        if (Hybridmode){
             fflush(stdout);
-            printf("LDR mode\n");
-            fflush(stdout);}
-        else{
-            GPSmode=true;// make it turn to gps mode
+            printf("Setup completed!\n");
+            fflush(stdout);
+            read_sensors();
+            int temp = fmin(sensorBuffer[0],sensorBuffer[1]);//finds the minimum value
+            int minVal = fmin(sensorBuffer[2],sensorBuffer[3]);
+            minVal = fmin(temp,minVal);
+
+            if (minVal>9000){// finds the max value and check if it has enough sunlight for GPS mode
+                GPSmode=false;//turns on LDR mode
+            }
+            else{
+                GPSmode=true;// make it turn to GPS mode
+            }
+        }
+
+        if(GPSmode){
+            //GPS mode
             fflush(stdout);
             printf("GPS mode\n");
             fflush(stdout);
-            }
-
-
-        GPSmode=false;//used to select which mode
-        if(GPSmode){
-            //GPS mode
             fix=false;
             rxWriteIndex=0;
             //SETUP GPS READ functionality**********************************
             /* Selecting P3.2 and P3.3 in UART mode
              * this is for communication to the GPS*/
             GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P3,
-                                                           GPIO_PIN2 | GPIO_PIN3, GPIO_PRIMARY_MODULE_FUNCTION);
+                                                       GPIO_PIN2 | GPIO_PIN3, GPIO_PRIMARY_MODULE_FUNCTION);
             //GPS fix pin setup
 
             /* Select P1.2 and P1.3 in UART mode
              * this is for the communication to the computer
              * */
             GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P1,
-                                                           GPIO_PIN2 | GPIO_PIN3, GPIO_PRIMARY_MODULE_FUNCTION);
+                                                       GPIO_PIN2 | GPIO_PIN3, GPIO_PRIMARY_MODULE_FUNCTION);
 
             /* Enable UART module */
             UART_enableModule(EUSCI_A2_BASE);
@@ -343,13 +350,18 @@ int main(void)
         else{
 
             // LDR mode
+            fflush(stdout);
+            printf("LDR mode\n");
+            fflush(stdout);
+            read_sensors(); // read inputs from all sensors
+            compare_LDR();  // compare LDR readings to move motors
             read_sensors(); // read inputs from all sensors
             compare_LDR();  // compare LDR readings to move motors
 
         }
 
         //Sleep Mode***********************************************************************************************************
-        gotosleep(2);  //makes the board sleep for minutes
+        gotosleep(20);  //makes the board sleep for minutes
     }
 }
 
@@ -435,12 +447,12 @@ bool is_leap_year()
 void calc_azimuth_zenith()
 {
     /*this funtion finds:
-        * day number,
-        * hour angle,
-        * solar declination angle of the sun
-        * zenith
-        * azimuth
-       */
+     * day number,
+     * hour angle,
+     * solar declination angle of the sun
+     * zenith
+     * azimuth
+     */
 
     //find the day number, hour angle, and solar declination angle of the sun
     daynumber = daysToMonth[is_leap_year()][month-1] + day; // calculate the daynumber of the year
@@ -711,7 +723,7 @@ void gotosleep(int time){
 
     /* Configuring LFXTOUT and LFXTIN for XTAL operation and P1.0 for LED */
     GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_PJ,
-                                                   GPIO_PIN0, GPIO_PRIMARY_MODULE_FUNCTION);
+                                               GPIO_PIN0, GPIO_PRIMARY_MODULE_FUNCTION);
 
     /* Setting LFXT to lowest drive strength and current consumption */
     CS_startLFXT(CS_LFXT_DRIVE0);
