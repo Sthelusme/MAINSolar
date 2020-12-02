@@ -88,7 +88,7 @@ IN 4 ----P5.6--------West------EW-
  * if Hybridmode= true, it will change GPSmode
  * */
 bool Hybridmode=false;
-bool GPSmode=true;
+bool GPSmode=false;
 
 
 /* GLOBAL VARIABLES */
@@ -124,7 +124,7 @@ char gpsdata[80];
 //psuedo GPS sentence for testing
 char gpsdata[] = {'$','G','P','R','M','C',',','1','3','3','0','0','0','.','0','0','0',',','A',',','3','3','0','0','.','0','0','0','0',',','N',',','0','8','4','0','0',
  '.','0','0','0','0',',','W',',','0','.','4','2',',','1','0','9','.','1','4',',','2','0','1','1','2','0'};
-*/
+ */
 
 uint16_t rxWriteIndex=0;
 uint8_t data;
@@ -205,7 +205,7 @@ int main(void)
     GPIO_setAsOutputPin(GPIO_PORT_P5, GPIO_PIN6); //West
 
     //GPS enable
-    GPIO_setAsOutputPin(GPIO_PORT_P4, GPIO_PIN3);
+    GPIO_setAsOutputPin(GPIO_PORT_P4, GPIO_PIN1);
 
     //Sensor enable pin
     GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN6);
@@ -214,6 +214,10 @@ int main(void)
 
     while(1){
         //Setup after waking up
+        //Blue light= Awake indicator
+        GPIO_setAsOutputPin(GPIO_PORT_P2,GPIO_PIN2);
+        GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN2);
+
         /* Enabling interrupts */
         Interrupt_enableInterrupt(INT_EUSCIA2); //Enable Interrupt for clock
 
@@ -266,9 +270,7 @@ int main(void)
 
         //Moving phase************************************************************
 
-        //Blue light= Awake indicator
-        GPIO_setAsOutputPin(GPIO_PORT_P2,GPIO_PIN2);
-        GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN2);
+
         //checks ldr for brightness to determine mode
 
         //Hybrid mode - checks for enough sunlight
@@ -355,13 +357,13 @@ int main(void)
             fflush(stdout);
             read_sensors(); // read inputs from all sensors
             compare_LDR();  // compare LDR readings to move motors
-            read_sensors(); // read inputs from all sensors
-            compare_LDR();  // compare LDR readings to move motors
+            //read_sensors(); // read inputs from all sensors
+            //compare_LDR();  // compare LDR readings to move motors
 
         }
 
         //Sleep Mode***********************************************************************************************************
-        gotosleep(20);  //makes the board sleep for minutes
+        gotosleep(1);  //makes the board sleep for minutes
     }
 }
 
@@ -693,18 +695,11 @@ void compare_LDR(void){
 
 void gotosleep(int time){
     // Sleep mode setup
-    //makes the motor sleep for (time) minutes
-    /* If this flag has been set, it means that the device has already
-     * been into LPM3.5 mode before.
-     */
-    if (ResetCtl_getPCMSource() & RESET_LPM35)
-    {
-        /* Clearing the PCM Reset flags */
-        ResetCtl_clearPCMFlags();
+    //makes the TI Device sleep for (time) minutes
+    fflush(stdout);
+    printf("Sleep Mode\n");
+    fflush(stdout);
 
-        /* Unlocking the latched GPIO/LPM configuration flag */
-        PCM->CTL1 = PCM_CTL1_KEY_VAL;
-    }
     /* Terminating all remaining pins to minimize power consumption. This is
             done by register accesses for simplicity and to minimize branching API
             calls */
@@ -739,12 +734,13 @@ void gotosleep(int time){
 
     /* Setting up interrupts for the RTC. Once we enable interrupts, if there
      * was a pending interrupt due to a wake-up from partial shutdown then the
-     * ISR will immediately fire and blinkLED will be set to true.*/
+     * ISR will immediately fire*/
     RTC_C_enableInterrupt(RTC_C_CLOCK_ALARM_INTERRUPT);
     Interrupt_enableInterrupt(INT_RTC_C);
     Interrupt_enableMaster();
     RTC_C_startClock();
-    PCM_shutdownDevice(PCM_LPM35_VCORE0);
+    //PCM_shutdownDevice(PCM_LPM35_VCORE0);
+    PCM_gotoLPM3();
 
 }
 
@@ -791,7 +787,13 @@ void GPS_align_panel(void){
     float delta_length_NS = length_NS_s - length_NS_p;
 
     float motorNS_time = fabs(delta_length_NS/0.05);
+    if (motorNS_time>60){
+        motorNS_time=60;
+    }
     float motorEW_time = fabs(delta_length_EW/0.04375);
+    if (motorEW_time>60){
+        motorEW_time=60;
+    }
 
     //move motors
     //float alpha_dif=alpha_s-alpha_p;
