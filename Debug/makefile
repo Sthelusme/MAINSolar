@@ -130,34 +130,34 @@ endif
 
 # Add inputs and outputs from these tool invocations to the build variables 
 EXE_OUTPUTS += \
-MAINSolar.out \
+MAINSolar11202020.out \
 
 EXE_OUTPUTS__QUOTED += \
-"MAINSolar.out" \
+"MAINSolar11202020.out" \
 
 BIN_OUTPUTS += \
-MAINSolar.hex \
+MAINSolar11202020.hex \
 
 BIN_OUTPUTS__QUOTED += \
-"MAINSolar.hex" \
+"MAINSolar11202020.hex" \
 
 
 # All Target
 all: $(OBJS) $(CMD_SRCS) $(GEN_CMDS)
-	@$(MAKE) --no-print-directory -Onone "MAINSolar.out"
+	@$(MAKE) --no-print-directory -Onone "MAINSolar11202020.out"
 
 # Tool invocations
-MAINSolar.out: $(OBJS) $(CMD_SRCS) $(GEN_CMDS)
+MAINSolar11202020.out: $(OBJS) $(CMD_SRCS) $(GEN_CMDS)
 	@echo 'Building target: "$@"'
 	@echo 'Invoking: ARM Linker'
-	"C:/Users/sthel/Documents/ti/ccs1010/ccs/tools/compiler/ti-cgt-arm_20.2.2.LTS/bin/armcl" -mv7M4 --code_state=16 --float_support=FPv4SPD16 -me --advice:power=none --define=__MSP432P401R__ --define=DeviceFamily_MSP432P401x -g --diag_warning=225 --diag_warning=255 --diag_wrap=off --display_error_number --gen_func_subsections=on -z -m"MAINSolar.map" --stack_size=512 -i"C:/Users/sthel/Documents/ti/ccs1010/simplelink_msp432p4_sdk_3_40_01_02/source" -i"C:/Users/sthel/Documents/ti/ccs1010/ccs/tools/compiler/ti-cgt-arm_20.2.2.LTS/lib" --diag_wrap=off --display_error_number --warn_sections --xml_link_info="MAINSolar_linkInfo.xml" --rom_model -o "MAINSolar.out" $(ORDERED_OBJS)
+	"C:/Users/sthel/Documents/ti/ccs1010/ccs/tools/compiler/ti-cgt-arm_20.2.2.LTS/bin/armcl" -mv7M4 --code_state=16 --float_support=FPv4SPD16 -me --advice:power=none --define=__MSP432P401R__ --define=DeviceFamily_MSP432P401x -g --diag_warning=225 --diag_warning=255 --diag_wrap=off --display_error_number --gen_func_subsections=on -z -m"MAINSolar11202020.map" --stack_size=512 -i"C:/Users/sthel/Documents/ti/ccs1010/simplelink_msp432p4_sdk_3_40_01_02/source" -i"C:/Users/sthel/Documents/ti/ccs1010/ccs/tools/compiler/ti-cgt-arm_20.2.2.LTS/lib" --diag_wrap=off --display_error_number --warn_sections --xml_link_info="MAINSolar11202020_linkInfo.xml" --rom_model -o "MAINSolar11202020.out" $(ORDERED_OBJS)
 	@echo 'Finished building target: "$@"'
 	@echo ' '
 
-MAINSolar.hex: $(EXE_OUTPUTS)
+MAINSolar11202020.hex: $(EXE_OUTPUTS)
 	@echo 'Building files: $(strip $(EXE_OUTPUTS__QUOTED))'
 	@echo 'Invoking: ARM Hex Utility'
-	"C:/Users/sthel/Documents/ti/ccs1010/ccs/tools/compiler/ti-cgt-arm_20.2.2.LTS/bin/armhex"  -o "MAINSolar.hex" $(EXE_OUTPUTS__QUOTED)
+	"C:/Users/sthel/Documents/ti/ccs1010/ccs/tools/compiler/ti-cgt-arm_20.2.2.LTS/bin/armhex"  -o "MAINSolar11202020.hex" $(EXE_OUTPUTS__QUOTED)
 	@echo 'Finished building: $(strip $(EXE_OUTPUTS__QUOTED))'
 	@echo ' '
 

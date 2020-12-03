@@ -1,5 +1,5 @@
 /************************************************************************
-  MSP432- 11.14.2020
+  MSP432- 12.01.2020
 
   TASK SUMMARY
         search array for values*
@@ -88,7 +88,7 @@ IN 4 ----P5.6--------West------EW-
  * if Hybridmode= true, it will change GPSmode
  * */
 bool Hybridmode=false;
-bool GPSmode=false;
+bool GPSmode=true;
 
 
 /* GLOBAL VARIABLES */
@@ -198,6 +198,9 @@ int main(void)
     REF_A_setReferenceVoltage(REF_A_VREF2_5V);
     REF_A_enableReferenceVoltage();
 
+    //Awake indicator = Green light
+        GPIO_setAsOutputPin(GPIO_PORT_P2,GPIO_PIN1);
+
     //Motor pin setup
     GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN6); //South
@@ -205,7 +208,9 @@ int main(void)
     GPIO_setAsOutputPin(GPIO_PORT_P5, GPIO_PIN6); //West
 
     //GPS enable
-    GPIO_setAsOutputPin(GPIO_PORT_P4, GPIO_PIN1);
+        GPIO_setAsOutputPin(GPIO_PORT_P4, GPIO_PIN1);//GPS ENABLE
+        GPIO_setAsOutputPin(GPIO_PORT_P2,GPIO_PIN2);//GPS INDICATOR = cyan
+
 
     //Sensor enable pin
     GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN6);
@@ -214,9 +219,8 @@ int main(void)
 
     while(1){
         //Setup after waking up
-        //Blue light= Awake indicator
-        GPIO_setAsOutputPin(GPIO_PORT_P2,GPIO_PIN2);
-        GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN2);
+        //Green light= Awake indicator
+                GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN1);
 
         /* Enabling interrupts */
         Interrupt_enableInterrupt(INT_EUSCIA2); //Enable Interrupt for clock
@@ -259,6 +263,7 @@ int main(void)
                                         ADC_INPUT_A5, false);
 
         //sets motors to low
+        GPIO_setOutputLowOnPin(GPIO_PORT_P2,GPIO_PIN0);//Indicator
         GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
         GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
         GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -298,6 +303,8 @@ int main(void)
             fflush(stdout);
             fix=false;
             rxWriteIndex=0;
+            GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN2); //Cyan Light = waiting on GPS
+
             //SETUP GPS READ functionality**********************************
             /* Selecting P3.2 and P3.3 in UART mode
              * this is for communication to the GPS*/
@@ -344,6 +351,7 @@ int main(void)
                 }
             }while(!fix);
 
+            GPIO_setOutputLowOnPin(GPIO_PORT_P2,GPIO_PIN2);// Turn of GPS indicator light
             parseGPS();   // collect GPS data and convert to proper data types values
             calc_azimuth_zenith();   //calculates the zenith and azimuth angle
             GPS_align_panel(); //move panels to align
@@ -494,6 +502,9 @@ void parseGPS()
 
     // pull out all the required information from the GPS data
     hour = convert_toHundreds('0',gpsdata[7],gpsdata[8]) + timezone;
+
+    //hour=12;
+
     min = convert_toHundreds('0',gpsdata[9],gpsdata[10]);
     sec = convert_toHundreds('0',gpsdata[11],gpsdata[12]);
 
@@ -561,6 +572,7 @@ void read_sensors(){
 
 void moveN(int time){
     //retract the NS motor turning the normal of the panel towards the north
+    GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN0);//Indicator
     GPIO_setOutputHighOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -568,13 +580,17 @@ void moveN(int time){
 
     delay(time);
 
+    GPIO_setOutputLowOnPin(GPIO_PORT_P2,GPIO_PIN0);//Indicator
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
     GPIO_setOutputLowOnPin(GPIO_PORT_P5, GPIO_PIN6); //West
+
 }
+
 void moveS(int time){
     //extends the NS motor turning the normal of the panel towards the south
+    GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN0);//Indicator
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputHighOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -582,13 +598,16 @@ void moveS(int time){
 
     delay(time);
 
+    GPIO_setOutputLowOnPin(GPIO_PORT_P2,GPIO_PIN0);//Indicator
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
     GPIO_setOutputLowOnPin(GPIO_PORT_P5, GPIO_PIN6); //West
 }
+
 void moveE(int time){
     //retract the EW motor turning the normal of the panel towards the east
+    GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN0);//Indicator
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputHighOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -596,6 +615,7 @@ void moveE(int time){
 
     delay(time);
 
+    GPIO_setOutputLowOnPin(GPIO_PORT_P2,GPIO_PIN0);//Indicator
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -604,6 +624,7 @@ void moveE(int time){
 
 void moveW(int time){
     //extends the EW motor turning the normal of the panel towards the west
+    GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN0);//Indicator
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -611,12 +632,12 @@ void moveW(int time){
 
     delay(time);
 
+    GPIO_setOutputLowOnPin(GPIO_PORT_P2,GPIO_PIN0);//Indicator
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
     GPIO_setOutputLowOnPin(GPIO_PORT_P5, GPIO_PIN6); //West
 }
-
 
 void compare_LDR(void){
     // compare LDR readings to move motors
