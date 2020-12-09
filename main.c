@@ -1,5 +1,5 @@
 /************************************************************************
-  MSP432- 12.01.2020
+  MSP432- 12.07.2020
 
   TASK SUMMARY
         search array for values*
@@ -85,10 +85,11 @@ IN 4 ----P5.6--------West------EW-
 /*GPSmode
  * true= GPS mode
  * false = LDR mode
- * if Hybridmode= true, it will change GPSmode
+ * if Hybrid mode= true, it will change GPSmode
  * */
 bool Hybridmode=false;
-bool GPSmode=true ;
+bool GPSmode=true;
+int sleep_time=20;
 
 
 /* GLOBAL VARIABLES */
@@ -191,36 +192,35 @@ RTC_C_Calendar calendarTime ={// Sleep mode calendar setup
 int main(void)
 {
     //setup************************************************************
-    /* Halting WDT  */
-    WDT_A_holdTimer();
-    Interrupt_disableSleepOnIsrExit();
-    /* Setting DCO to 12MHz */
-    CS_setDCOCenteredFrequency(CS_DCO_FREQUENCY_12);
-    /* Configuring UART Module */
-    UART_initModule(EUSCI_A2_BASE, &uartConfig);
-    UART_initModule(EUSCI_A0_BASE, &uartConfig);
-    /* Setting reference voltage to 2.5  and enabling reference */
-    REF_A_setReferenceVoltage(REF_A_VREF2_5V);
-    REF_A_enableReferenceVoltage();
-
-    //Awake indicator = Green light
-    GPIO_setAsOutputPin(GPIO_PORT_P2,GPIO_PIN1);
-
-    //Motor pin setup
-    GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN7); //North
-    GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN6); //South
-    GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN4); //East
-    GPIO_setAsOutputPin(GPIO_PORT_P5, GPIO_PIN6); //West
-
-    //GPS enable
-    GPIO_setAsOutputPin(GPIO_PORT_P4, GPIO_PIN1);//GPS ENABLE
-
-    //Sensor enable pin
-    GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN6);
-    GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN7);
-    Interrupt_enableMaster();
 
     while(1){
+        /* Halting WDT  */
+        WDT_A_holdTimer();
+        Interrupt_disableSleepOnIsrExit();
+        /* Setting DCO to 12MHz */
+        CS_setDCOCenteredFrequency(CS_DCO_FREQUENCY_12);
+        /* Configuring UART Module */
+        UART_initModule(EUSCI_A2_BASE, &uartConfig);
+        UART_initModule(EUSCI_A0_BASE, &uartConfig);
+        /* Setting reference voltage to 2.5  and enabling reference */
+        REF_A_setReferenceVoltage(REF_A_VREF2_5V);
+        REF_A_enableReferenceVoltage();
+
+        //Motor pin setup
+        GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN7); //North
+        GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN6); //South
+        GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN4); //East
+        GPIO_setAsOutputPin(GPIO_PORT_P5, GPIO_PIN6); //West
+
+        //GPS enable
+        GPIO_setAsOutputPin(GPIO_PORT_P4, GPIO_PIN1);//GPS ENABLE
+
+        //Sensor enable pin
+        GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN6);//Powers LDR
+        GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN7);//Powers POT
+        Interrupt_enableMaster();
+
+
         //Setup after waking up
         LED_indicator('g');
 
@@ -274,15 +274,18 @@ int main(void)
         printf("Setup completed!\n");
         fflush(stdout);
 
+        /*
         //Enable mode change button
-        GPIO_setAsInputPinWithPullUpResistor(GPIO_PORT_P1, GPIO_PIN4);
+
         GPIO_clearInterruptFlag(GPIO_PORT_P1, GPIO_PIN4);
         GPIO_enableInterrupt(GPIO_PORT_P1, GPIO_PIN4);
         Interrupt_enableInterrupt(INT_PORT1);
+         */
         //Moving phase************************************************************
         //checks ldr for brightness to determine mode
 
         //Hybrid mode - checks for enough sunlight
+        /*
         if (Hybridmode){
             fflush(stdout);
             printf("Setup completed!\n");
@@ -299,7 +302,18 @@ int main(void)
                 GPSmode=true;// make it turn to GPS mode
             }
         }
+         */
+        //mode toggle switch
+        /*
+        GPIO_setAsInputPin();
+        if (GPIO_getinputPinValue()){
+            GPSmode=True;
+        }
+        else{
+            GPSmode=false;
+        }
 
+         */
         if(GPSmode){
             //GPS mode
             fflush(stdout);
@@ -308,7 +322,6 @@ int main(void)
             LED_indicator('c');
             fix=false;
             rxWriteIndex=0;
-            GPIO_setOutputHighOnPin(GPIO_PORT_P2,GPIO_PIN2); //Cyan Light = waiting on GPS
 
             //SETUP GPS READ functionality**********************************
             /* Selecting P3.2 and P3.3 in UART mode
@@ -327,12 +340,11 @@ int main(void)
             UART_enableModule(EUSCI_A2_BASE);
             UART_enableModule(EUSCI_A0_BASE);
             UART_enableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // enable the interupt for the UART GPS reading
-            GPIO_setOutputHighOnPin(GPIO_PORT_P4,GPIO_PIN1);//turns on GPS
+            GPIO_setOutputHighOnPin(GPIO_PORT_P4,GPIO_PIN1);//turns on GPS, GPS Enable
 
             //GPS fix check
             //UART_disableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // disable the interrupt for the UART GPS reading
 
-            // comment out for GPS manual put in
             do{//checks for active data
                 //waits for the GPS buffer to fill up
                 while(rxWriteIndex<800){
@@ -366,7 +378,7 @@ int main(void)
             fflush(stdout);
             printf("LDR mode\n");
             fflush(stdout);
-
+            LED_indicator('g');
             read_sensors(); // read inputs from all sensors
             compare_LDR();  // compare LDR readings to move motors
             compare_LDR();  // compare LDR readings to move motors
@@ -374,7 +386,7 @@ int main(void)
         }
 
         //Sleep Mode***********************************************************************************************************
-        gotosleep(20);  //makes the board sleep for minutes
+        gotosleep(sleep_time);  //makes the board sleep for minutes
     }
 }
 
@@ -459,7 +471,7 @@ bool is_leap_year()
 
 void calc_azimuth_zenith()
 {
-    /*this funtion finds:
+    /*this function finds:
      * day number,
      * hour angle,
      * solar declination angle of the sun
@@ -489,6 +501,7 @@ void calc_azimuth_zenith()
     zenith_deg = zenith_rad * 180.00/PI;
     altitude_angle_deg = 90.00 - zenith_deg; // for solar tilt
 
+    float abc=(((sin(lat_rad)*cos(zenith_rad))-sin(solar_decl_angle_rad))/(cos(lat_rad)*sin(zenith_rad)));
     float Azimuth_p1=acos((((sin(lat_rad)*cos(zenith_rad))-sin(solar_decl_angle_rad))/(cos(lat_rad)*sin(zenith_rad))))*180/PI;//in degrees
     if (hour_angle_deg>0){
         Azimuth=fmod(Azimuth_p1+180,360);
@@ -550,6 +563,8 @@ void read_sensors(){
     //enable sensor pins
     GPIO_setOutputHighOnPin(GPIO_PORT_P3, GPIO_PIN6);//turns on the LDR
     GPIO_setOutputHighOnPin(GPIO_PORT_P3, GPIO_PIN7);//turns on the POT
+
+    delay(250);
     /* Zero-filling buffer */
     memset(sensorBuffer, 0x00, 6 * sizeof(uint16_t));
     /* Setting up the sample timer to automatically step through the sequence
@@ -649,7 +664,7 @@ void compare_LDR(void){
     int thresh = 10; // this is the tolerance between LDRs
     int adj_sensorNS = 0;//sensor that is north or south adjacent to max value
     int adj_sensorEW = 0;//sensor that is east or west adjacent to max value
-    int move_time=1000; // the time allowed for motor movement
+    int move_time=10000; // the time allowed for motor movement
     int stop_countNS = 400;// Amount of of attempts the motor has to align
     int stop_countEW = 400;
 
@@ -738,11 +753,7 @@ void gotosleep(int time){
     GPIO_setOutputLowOnPin(GPIO_PORT_P5, PIN_ALL16);
     GPIO_setOutputLowOnPin(GPIO_PORT_P6, PIN_ALL16);
 
-    /* Configuring P1.1 as an input and enabling interrupts for ondemand wakeup*/
-    GPIO_setAsInputPinWithPullUpResistor(GPIO_PORT_P1, GPIO_PIN1);
-    GPIO_clearInterruptFlag(GPIO_PORT_P1, GPIO_PIN1);
-    GPIO_enableInterrupt(GPIO_PORT_P1, GPIO_PIN1);
-    Interrupt_enableInterrupt(INT_PORT1);
+
     /* Configuring LFXTOUT and LFXTIN for XTAL operation and P1.0 for LED */
     GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_PJ,
                                                GPIO_PIN0, GPIO_PRIMARY_MODULE_FUNCTION);
@@ -759,6 +770,12 @@ void gotosleep(int time){
     /* Setting alarm for one minute later */
     RTC_C_setCalendarAlarm(calendarTime.minutes+time,0,1,1);
 
+    /* Configuring P1.1 as an input and enabling interrupts for ondemand wakeup*/
+    GPIO_setAsInputPinWithPullUpResistor(GPIO_PORT_P1, GPIO_PIN1);
+    GPIO_clearInterruptFlag(GPIO_PORT_P1, GPIO_PIN1);
+    GPIO_enableInterrupt(GPIO_PORT_P1, GPIO_PIN1);
+    Interrupt_enableInterrupt(INT_PORT1);
+
     /* Setting up interrupts for the RTC. Once we enable interrupts, if there
      * was a pending interrupt due to a wake-up from partial shutdown then the
      * ISR will immediately fire*/
@@ -769,6 +786,9 @@ void gotosleep(int time){
     //PCM_shutdownDevice(PCM_LPM35_VCORE0);
     PCM_gotoLPM3();
 
+    GPIO_unregisterInterrupt(GPIO_PORT_P1);
+    GPIO_disableInterrupt(GPIO_PORT_P1,GPIO_PIN1);
+
 }
 
 /* RTC ISR */
@@ -777,84 +797,106 @@ void RTC_C_IRQHandler(void)
     RTC_C_clearInterruptFlag(RTC_C_getInterruptStatus());
 }
 
-/* GPIO ISR */
-void PORT1_IRQHandler(void)
-{
-    LED_indicator('w');
-    int a=GPIO_getEnabledInterruptStatus(GPIO_PORT_P1);
-    if (a==16){
-        //GPSmode=!GPSmode;
-    }
-    GPIO_clearInterruptFlag(GPIO_PORT_P1,
-                            GPIO_getEnabledInterruptStatus(GPIO_PORT_P1));
-    LED_indicator(LED_old);
-
-}
-
-
 void GPS_align_panel(void){
     //move panels to align with calculated sun position
-    //alpha is angle between normal vector and x-axis (+x is N, -x is S; motor1)
-    //beta is angle between normal vector and y-axis(+y is E, -y is W; motor2)
 
-    //find current panel position using potentiometers
+    //alpha is angle between normal vector and x-axis (+x is N, -x is S; motor1)
+    //convert zenith and azimuth to Cartesian
+    //Find Cartesian coordinates from spherical angles
+    float x_cart = cos(Azimuth*PI/180)*sin(zenith_deg*PI/180); // rho=p=1 orig cos(Azimuth*PI/180)
+    //Find cartesian angles from cartesian coordinates
+    /* alpha and beta angles for the sun(s) and the and the panel(p)
+              alpha is angle between normal vector and x-axis */
+    float alpha_s = acos(x_cart)*180/PI; // output in degrees
+    // Find Cartesian coordinates from spherical angles
+
+    float y_cart = sin(Azimuth*PI/180)*sin(zenith_deg*PI/180);
+    // Find cartesian angles from cartesian coordinates
+    /* alpha and beta angles for the sun(s) and the and the panel(p)
+       beta is angle between normal vector and y-axis         */
+    float beta_s = acos(y_cart)*180/PI; // output in degrees
+
     read_sensors();
-    int potNS=sensorBuffer[4], potEW=sensorBuffer[5];
+    int potNS=sensorBuffer[4];
     //POT NS range 5600-1200
     //pot EW range 512-4130
 
     //Linear relationship between angle and potentiometer reading
     float alpha_p = 0.0127*potNS - 25.82; //formula to convert pot value to angle of the panel
+
+    int count = 5;
+    do{
+
+        float length_NS_p = (alpha_p - 45.96)/9.210;// Current length (in)of actuator
+
+        float length_NS_s = (alpha_s - 45.96)/9.210;// length (in) needed to align with sun
+
+        float delta_length_NS = length_NS_s - length_NS_p;
+
+        float motorNS_time = fabs(delta_length_NS/motorNS_speed)/2;
+        if (motorNS_time>180){// motor time move limit 3mins*60s/min=180s
+            motorNS_time=180;
+        }
+        //move motors
+        //float alpha_dif=alpha_s-alpha_p;
+        if (fabs(delta_length_NS)>0.02){  //change zero to allow for alignment
+            if (delta_length_NS<0)
+                moveN(motorNS_time*1000);
+            else
+                moveS(motorNS_time*1000);
+        }
+        read_sensors();
+        potNS=sensorBuffer[4];
+        //POT NS range 5600-1200
+        alpha_p = 0.0127*potNS - 25.82;
+        count--;
+    }while(fabs(alpha_p-alpha_s)>=.5 && count);
+
+    //beta is angle between normal vector and y-axis(+y is E, -y is W; motor2)
+    read_sensors();
+    int potEW=sensorBuffer[5];
+    //pot EW range 512-4130
+
+    //Linear relationship between angle and potentiometer reading
     float beta_p = -0.0136*potEW + 118.12; //formula to convert pot value to angle of the panel
+    //find current panel position using potentiometers
+    count = 5;
+    do{  //convert zenith and azimuth to Cartesian
 
-    //convert zenith and azimuth to Cartesian
-    // Find Cartesian coordinates from spherical angles
-    float x_cart = cos(Azimuth*PI/180)*sin(zenith_deg*PI/180); // rho=p=1 orig cos(Azimuth*PI/180)
-    float y_cart = sin(Azimuth*PI/180)*sin(zenith_deg*PI/180);
+        float length_EW_p = (beta_p - 63.44)/5.585;// Current length (in) of actuator
 
-    // Find cartesian angles from cartesian coordinates
-    /* alpha and beta angles for the sun(s) and the and the panel(p)
-       alpha is angle between normal vector and x-axis
-       beta is angle between normal vector and y-axis
-     */
-    float alpha_s = acos(x_cart)*180/PI; // output in degrees
-    float beta_s = acos(y_cart)*180/PI; // output in degrees
+        float length_EW_s = (beta_s - 63.44)/5.585;// length (in) needed to align with sun
 
+        float delta_length_EW = length_EW_s - length_EW_p; // positive means retract
 
-    float length_EW_p = (beta_p - 63.44)/5.585;// Current length (in) of actuator
-    float length_NS_p = (alpha_p - 45.96)/9.210;// Current length (in)of actuator
+        float motorEW_time = fabs(delta_length_EW/motorEW_speed)/2;
+        if (motorEW_time>180){
+            motorEW_time=180;
+        }
 
-    float length_EW_s = (beta_s - 63.44)/5.585;// length (in) needed to align with sun
-    float length_NS_s = (alpha_s - 45.96)/9.210;// length (in) needed to align with sun
+        //move motors
+        //float alpha_dif=alpha_s-alpha_p;
+        //float beta_dif=beta_s-beta_p;
+        if (fabs(delta_length_EW)>0.02){  //change zero to allow for alignment
+            if (delta_length_EW<0){
+                if (length_EW_p>=1.09)
+                    moveE(motorEW_time*1000);
+            }
+            else{
+                if (length_EW_p<=8.97)
+                    moveW(motorEW_time*1000);
+            }
+        }
+        read_sensors();
+        int potEW=sensorBuffer[5];
+        //pot EW range 512-4130
 
-    float delta_length_EW = length_EW_s - length_EW_p; // positive means retract
-    float delta_length_NS = length_NS_s - length_NS_p;
+        //Linear relationship between angle and potentiometer reading
+        beta_p = -0.0136*potEW + 118.12; //formula to convert pot value to angle of the panel
+        //find current panel position using potentiometers
+        count--;
+    }while(fabs(beta_p-beta_s)>=.3 && count);
 
-    float motorNS_time = fabs(delta_length_NS/motorNS_speed);
-    if (motorNS_time>800){// motor time move limit
-        motorNS_time=800;
-    }
-    float motorEW_time = fabs(delta_length_EW/motorEW_speed);
-    if (motorEW_time>800){
-        motorEW_time=800;
-    }
-
-    //move motors
-    //float alpha_dif=alpha_s-alpha_p;
-    LED_indicator('r');//Red light to indicate motor movement
-    if (fabs(delta_length_NS)>0.02){  //change zero to allow for alignment
-        if (delta_length_NS<0)
-            moveN(motorNS_time*1000);
-        else
-            moveS(motorNS_time*1000);
-    }
-    //float beta_dif=beta_s-beta_p;
-    if (fabs(delta_length_EW)>0.02){  //change zero to allow for alignment
-        if (delta_length_EW<0)
-            moveE(motorEW_time*1000);
-        else
-            moveW(motorEW_time*1000);
-    }
     return;
 }
 
