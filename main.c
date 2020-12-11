@@ -1,25 +1,45 @@
 /************************************************************************
-  MSP432- 12.07.2020
+  Dual Axis Solar Tracking Controller for solar panels with GPS and LDR
+  Last updated 12-11-2020
+  Developed and written by:
+      Danielle Cranston
+      Mary Caroline Dowd
+      Stephen Thelusme
+      Andre Sands
+
+
 
   TASK SUMMARY
-        search array for values*
-        put values in new array*
-        parsing GPS VARIBLES*
-        light sensors
-            sensor setup *
-            sensor comparison
-        calculate Azimuth, Zenith angles *
-        read in potentiometer
-            calculate panel position
+Choose mode based on switch
+    GPS - Global Positioning
+        Import GPS values
+        put values in new array
+        parse GPS VARIBLES
+        calculate Azimuth, Zenith angles - finds suns position and represents in angles
+        read in potentiometer - calculate panel position
         Calculate motor movement - finds time to move the motor
-        move motors*
-            find the speed of motors
-        sleep mode
-        night time mode?
+        move motors
+        check threshold - Go back up to Sensor comparison if doesn't reach threshold or number of tries
+    LDR - Light Dependent Resistors
+L       Light sensor setup
+        sensor comparison
+        move motors
+        check threshold - Go back up to Sensor comparison if doesn't reach threshold or number of times
+   Sleep mode
+       turn off all pins
+       set up RTC - Real time Clock
+       Goes to LPM3
+       wake up in 20 mins
 
 Devices:
     MSP432P401
     Adafruit Ultimate GPS
+    L298N DC motor driver
+    4 LDR
+    4 2K  Ohm resistors\
+    LM2596
+    2 POT
+    RNG-50D Renogy Solar panel
 
 PIN---------Function
 P5.5  |<--- A0 (Analog Input) LDR 0, NE              sensorBuffer[0]
@@ -29,15 +49,19 @@ P5.1  |<--- A4 (Analog Input) Potentiometer NS       sensorBuffer[4]
 P5.0  |<--- A5 (Analog Input) Potentiometer EW       sensorBuffer[5]
 P4.7  |<----A6 (Analog Input) LDR 2, SW              sensorBuffer[2]
 
-P3.2--------RX(TX from device)
-P3.3--------TX(RX from device)
-P4.1--------GPS enable
+P3.2  |<----RX(TX from device)
+P3.3  |<----TX(RX from device)
+P4.1  |<----GPS enable
 
-P1.2--------UART:pc (not a pin, USB cord)
-P1.3--------UART:pc (not a pin, USB cord)
+P1.2  |<----UART:pc (not a pin, USB cord)
+P1.3  |<----UART:pc (not a pin, USB cord)
+P2.0  |<----RedLED
+P2.1  |<----GreenLED
+P2.2  |<----BlueLED
 
-P3.6--------Sensor enable
-P3.7--------Pot enable
+P3.5  |<----Mode toggle switch
+P3.6  |<----Sensor enable
+P3.7  |<----Pot enable
 
 POTNS
     G- MC
@@ -58,9 +82,12 @@ IN 4 ----P5.6--------West------EW-
 +- extend motor
 
 
+
+
  ****************************************************************************/
 /*
 //psuedo GPS sentence for testing
+ *
  char gpsdata[] = {'$','G','P','R','M','C',',','2','2','1','5','0','3','.','0','0','0',',','A',',','3','3','5','6','.','3','1','8','4',',','N',',','0','8','4','3','1',
                                    '.','3','6','7','0',',','W',',','0','.','4','2',',','1','0','9','.','1','4',',','2','0','1','0','2','0'};
  *$GPGGA,203203.000,3356.3184,N,08431.3670,W,2,06,1.42,292.0,M,-30.8,M,0000,0000*52
@@ -116,12 +143,12 @@ int daysToMonth[2][12] =
    { 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 },
    { 0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335 },
 };
-float motorNS_speed=.0101,motorEW_speed=.0101;
-//float motorNS_speed=.05,motorEWspeed=.04375;
+float motorNS_speed=.0101,motorEW_speed=.0101;//speed when plugged in to battery
+//float motorNS_speed=.05,motorEWspeed=.04375;//speed when 10V
 
 //GPS data storing variables
-char rxBuffer[800];
-char gpsdata[80];
+char rxBuffer[800];//all data received from GPS
+char gpsdata[80];//sentence that we are looking at
 
 /*
 //psuedo GPS sentence for testing
@@ -129,10 +156,10 @@ char gpsdata[] = {'$','G','P','R','M','C',',','1','3','3','0','0','0','.','0','0
  '.','0','0','0','0',',','W',',','0','.','4','2',',','1','0','9','.','1','4',',','2','0','1','1','2','0'};
  */
 
-uint16_t rxWriteIndex=0;
+uint16_t rxWriteIndex=0;//index used to read rxBuffer
 uint8_t data;
-static uint16_t sensorBuffer[6]; //
-bool fix=false;
+static uint16_t sensorBuffer[6]; //buffer that contains sensor data
+bool fix=false;//GPS satalite fix
 
 //delay part
 
@@ -158,7 +185,7 @@ void moveW(int time);//extends the EW motor turning the normal of the panel towa
 void compare_LDR(void);// compare LDR readings to move motors
 void gotosleep(int time);//makes the motor sleep for minutes
 void GPS_align_panel(void); //move panels to align with calculated sun position
-void LED_indicator(char color);
+void LED_indicator(char color);//LED Function
 char LED_color='o';
 char LED_old='o';
 
@@ -205,42 +232,33 @@ int main(void)
         /* Setting reference voltage to 2.5  and enabling reference */
         REF_A_setReferenceVoltage(REF_A_VREF2_5V);
         REF_A_enableReferenceVoltage();
-
         //Motor pin setup
         GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN7); //North
         GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN6); //South
         GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_PIN4); //East
         GPIO_setAsOutputPin(GPIO_PORT_P5, GPIO_PIN6); //West
-
         //GPS enable
         GPIO_setAsOutputPin(GPIO_PORT_P4, GPIO_PIN1);//GPS ENABLE
-
         //Sensor enable pin
         GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN6);//Powers LDR
         GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_PIN7);//Powers POT
         Interrupt_enableMaster();
-
-
-        //Setup after waking up
-        LED_indicator('g');
-
+        LED_indicator('g');//light turns green to signal on
         /* Enabling interrupts */
         Interrupt_enableInterrupt(INT_EUSCIA2); //Enable Interrupt for clock
-
-        //Setup: Sensors Analog Digital Converter Input*****************************************
-
+        //Setup: Sensors Analog Digital Converter Input******************************************************
         /* Initializing ADC (MCLK/1/1) */
         ADC14_enableModule();
         ADC14_initModule(ADC_CLOCKSOURCE_MCLK, ADC_PREDIVIDER_1, ADC_DIVIDER_1,
                          0);
-
         /* Configuring GPIOs for Analog In */
         GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P5,
                                                    GPIO_PIN5 | GPIO_PIN4 | GPIO_PIN2 | GPIO_PIN1
                                                    | GPIO_PIN0, GPIO_TERTIARY_MODULE_FUNCTION);
         GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P4,
                                                    GPIO_PIN7, GPIO_TERTIARY_MODULE_FUNCTION);
-
+        /*Set up input pin for mode switching*/
+        GPIO_setAsInputPinWithPullDownResistor(GPIO_PORT_P3,GPIO_PIN5);
         /* Configuring ADC Memory (ADC_MEM0 - ADC_MEM7 (A0 - A7)  with no repeat)
          * with internal 2.5v reference */
         ADC14_configureMultiSequenceMode(ADC_MEM0, ADC_MEM5, false);
@@ -263,7 +281,6 @@ int main(void)
         ADC14_configureConversionMemory(ADC_MEM5,
                                         ADC_VREFPOS_INTBUF_VREFNEG_VSS,
                                         ADC_INPUT_A5, false);
-
         //sets motors to low
         GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
         GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
@@ -274,27 +291,15 @@ int main(void)
         printf("Setup completed!\n");
         fflush(stdout);
 
-        /*
-        //Enable mode change button
-
-        GPIO_clearInterruptFlag(GPIO_PORT_P1, GPIO_PIN4);
-        GPIO_enableInterrupt(GPIO_PORT_P1, GPIO_PIN4);
-        Interrupt_enableInterrupt(INT_PORT1);
-         */
         //Moving phase************************************************************
-        //checks ldr for brightness to determine mode
 
-        //Hybrid mode - checks for enough sunlight
         /*
+        //Hybrid mode - checks ldr for brightness to determine mode
         if (Hybridmode){
-            fflush(stdout);
-            printf("Setup completed!\n");
-            fflush(stdout);
             read_sensors();
             int temp = fmin(sensorBuffer[0],sensorBuffer[1]);//finds the minimum value
             int minVal = fmin(sensorBuffer[2],sensorBuffer[3]);
             minVal = fmin(temp,minVal);
-
             if (minVal>9000){// finds the max value and check if it has enough sunlight for GPS mode
                 GPSmode=false;//turns on LDR mode
             }
@@ -303,17 +308,9 @@ int main(void)
             }
         }
          */
-        //mode toggle switch
-        /*
-        GPIO_setAsInputPin();
-        if (GPIO_getinputPinValue()){
-            GPSmode=True;
-        }
-        else{
-            GPSmode=false;
-        }
 
-         */
+        //mode toggle switch
+        read_sensors();// this will set the mode based on the switch
         if(GPSmode){
             //GPS mode
             fflush(stdout);
@@ -322,37 +319,32 @@ int main(void)
             LED_indicator('c');
             fix=false;
             rxWriteIndex=0;
-
             //SETUP GPS READ functionality**********************************
             /* Selecting P3.2 and P3.3 in UART mode
              * this is for communication to the GPS*/
             GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P3,
                                                        GPIO_PIN2 | GPIO_PIN3, GPIO_PRIMARY_MODULE_FUNCTION);
             //GPS fix pin setup
-
             /* Select P1.2 and P1.3 in UART mode
-             * this is for the communication to the computer
+             * this is for the communication to the computer if debugging GPS input
              * */
             GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P1,
                                                        GPIO_PIN2 | GPIO_PIN3, GPIO_PRIMARY_MODULE_FUNCTION);
-
             /* Enable UART module */
-            UART_enableModule(EUSCI_A2_BASE);
-            UART_enableModule(EUSCI_A0_BASE);
-            UART_enableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // enable the interupt for the UART GPS reading
+            UART_enableModule(EUSCI_A2_BASE);//ENABLE UART interrupt for GPS UART
+            UART_enableModule(EUSCI_A0_BASE);//ENABLE UART interrupt for Computer UART
+            UART_enableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // enable the interrupt for the UART GPS reading
             GPIO_setOutputHighOnPin(GPIO_PORT_P4,GPIO_PIN1);//turns on GPS, GPS Enable
-
             //GPS fix check
             //UART_disableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // disable the interrupt for the UART GPS reading
-
             do{//checks for active data
                 //waits for the GPS buffer to fill up
                 while(rxWriteIndex<800){
                 }
                 readGPS(); // first time reading on startup - will read from rxBuffer into gpsdata[]
-                if (gpsdata[18]=='A'){// if the data is void, wait 5 seconds
+                if (gpsdata[18]=='A'){//If GPS is active, continue
                     fix=true;
-                    UART_disableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // enable the interupt for the UART GPS reading
+                    UART_disableInterrupt(EUSCI_A2_BASE, EUSCI_A_UART_RECEIVE_INTERRUPT); // disable the interrupt for the UART GPS reading
                     //fflush(stdout);
                     //printf("GPS Active\n");
                     //fflush(stdout);
@@ -371,9 +363,7 @@ int main(void)
             calc_azimuth_zenith();   //calculates the zenith and azimuth angle
             GPS_align_panel(); //move panels to align
         }
-
         else{
-
             // LDR mode
             fflush(stdout);
             printf("LDR mode\n");
@@ -382,9 +372,7 @@ int main(void)
             read_sensors(); // read inputs from all sensors
             compare_LDR();  // compare LDR readings to move motors
             compare_LDR();  // compare LDR readings to move motors
-
         }
-
         //Sleep Mode***********************************************************************************************************
         gotosleep(sleep_time);  //makes the board sleep for minutes
     }
@@ -522,8 +510,7 @@ void parseGPS()
     min = convert_toHundreds('0',gpsdata[9],gpsdata[10]);
     sec = convert_toHundreds('0',gpsdata[11],gpsdata[12]);
 
-
-    // recieved data from GPS is in deg + min , but needs to be in degrees only
+    // Received data from GPS is in deg + min , but needs to be in degrees only
     // result_deg = deg + min/60
     latdeg = convert_toHundreds('0',gpsdata[20],gpsdata[21]);
     latmin = convert_toHundreds('0',gpsdata[22],gpsdata[23]);
@@ -541,6 +528,7 @@ void parseGPS()
 
     int q=0;//size of gpsdata
     int comma_count=0;
+    //month, day and year don't come out in the same position every time, this function finds them in the GPSdata array
     while(q<80){
         if (gpsdata[q]==','){
             comma_count++;
@@ -581,6 +569,8 @@ void read_sensors(){
     //turn off to save power
     ADC14_disableSampleTimer();
     ADC14_disableConversion();
+    //read in mode toggle switch
+    GPSmode=GPIO_getInputPinValue(GPIO_PORT_P3,GPIO_PIN5);
     //turns off sensor pins
     GPIO_setOutputLowOnPin(GPIO_PORT_P3, GPIO_PIN6);
     GPIO_setOutputLowOnPin(GPIO_PORT_P3, GPIO_PIN7);
@@ -588,7 +578,6 @@ void read_sensors(){
 
 void moveN(int time){
     //retract the NS motor turning the normal of the panel towards the north
-    LED_indicator('r');
     GPIO_setOutputHighOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -596,7 +585,6 @@ void moveN(int time){
 
     delay(time);
 
-    LED_indicator(LED_old);
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -606,7 +594,6 @@ void moveN(int time){
 
 void moveS(int time){
     //extends the NS motor turning the normal of the panel towards the south
-    LED_indicator('r');
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputHighOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -614,7 +601,6 @@ void moveS(int time){
 
     delay(time);
 
-    LED_indicator(LED_old);
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -623,7 +609,6 @@ void moveS(int time){
 
 void moveE(int time){
     //retract the EW motor turning the normal of the panel towards the east
-    LED_indicator('r');
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputHighOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -631,7 +616,6 @@ void moveE(int time){
 
     delay(time);
 
-    LED_indicator(LED_old);
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -640,7 +624,6 @@ void moveE(int time){
 
 void moveW(int time){
     //extends the EW motor turning the normal of the panel towards the west
-    LED_indicator('r');
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -648,7 +631,6 @@ void moveW(int time){
 
     delay(time);
 
-    LED_indicator(LED_old);
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN7); //North
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN6); //South
     GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_PIN4); //East
@@ -664,7 +646,7 @@ void compare_LDR(void){
     int thresh = 10; // this is the tolerance between LDRs
     int adj_sensorNS = 0;//sensor that is north or south adjacent to max value
     int adj_sensorEW = 0;//sensor that is east or west adjacent to max value
-    int move_time=10000; // the time allowed for motor movement
+    int move_time=15000; // the time allowed for motor movement
     int stop_countNS = 400;// Amount of of attempts the motor has to align
     int stop_countEW = 400;
 
@@ -704,6 +686,7 @@ void compare_LDR(void){
         if (maxVal > light_tol){
             //      if met, continue
             // compare highest value with the E/W adjacent pin
+            LED_indicator('r');
             while((  sensorBuffer[maxIdx] - sensorBuffer[adj_sensorEW] > thresh)&& stop_countEW){
                 if(maxIdx == 0 || maxIdx == 3 )
                     moveE(move_time); // tilt panel's east side downward
@@ -712,7 +695,6 @@ void compare_LDR(void){
                 stop_countEW--;
                 read_sensors();
             }
-
             // compare highest value with the N/S adjacent pin
             while((  sensorBuffer[maxIdx] - sensorBuffer[adj_sensorNS]> thresh) && stop_countNS){
                 if(maxIdx < 2)
@@ -722,6 +704,7 @@ void compare_LDR(void){
                 stop_countNS--;
                 read_sensors();
             }
+            LED_indicator('g');
             moveenabled = false; // panel has been adjusted to LDR equalization
         }
     }
@@ -786,68 +769,61 @@ void gotosleep(int time){
     //PCM_shutdownDevice(PCM_LPM35_VCORE0);
     PCM_gotoLPM3();
 
+    //turning off the wake up button.
     GPIO_unregisterInterrupt(GPIO_PORT_P1);
     GPIO_disableInterrupt(GPIO_PORT_P1,GPIO_PIN1);
-
 }
 
-/* RTC ISR */
+/* Real Time Clock ISR */
 void RTC_C_IRQHandler(void)
 {
     RTC_C_clearInterruptFlag(RTC_C_getInterruptStatus());
 }
 
 void GPS_align_panel(void){
-    //move panels to align with calculated sun position
 
-    //alpha is angle between normal vector and x-axis (+x is N, -x is S; motor1)
-    //convert zenith and azimuth to Cartesian
-    //Find Cartesian coordinates from spherical angles
-    float x_cart = cos(Azimuth*PI/180)*sin(zenith_deg*PI/180); // rho=p=1 orig cos(Azimuth*PI/180)
-    //Find cartesian angles from cartesian coordinates
-    /* alpha and beta angles for the sun(s) and the and the panel(p)
-              alpha is angle between normal vector and x-axis */
+    /*move panels to align with calculated sun position
+     * alpha and beta angles for the sun(s) and the and the panel(p)
+     * alpha is angle between normal vector and x-axis (+x is N, -x is S; motor1)
+     * beta is angle between normal vector and y-axis
+     */
+    //Convert zenith and azimuth to Cartesian
+    float x_cart = cos(Azimuth*PI/180)*sin(zenith_deg*PI/180); // rho=p=1
+    //Find Cartesian angles from Cartesian coordinates
     float alpha_s = acos(x_cart)*180/PI; // output in degrees
-    // Find Cartesian coordinates from spherical angles
 
+    // Convert zenith and azimuth to Cartesian
     float y_cart = sin(Azimuth*PI/180)*sin(zenith_deg*PI/180);
-    // Find cartesian angles from cartesian coordinates
-    /* alpha and beta angles for the sun(s) and the and the panel(p)
-       beta is angle between normal vector and y-axis         */
+    // Find Cartesian angles from Cartesian coordinates
     float beta_s = acos(y_cart)*180/PI; // output in degrees
 
-    read_sensors();
+    read_sensors();//updates sensor buffer
     int potNS=sensorBuffer[4];
-    //POT NS range 5600-1200
-    //pot EW range 512-4130
-
-    //Linear relationship between angle and potentiometer reading
-    float alpha_p = 0.0127*potNS - 25.82; //formula to convert pot value to angle of the panel
-
-    int count = 5;
+    float alpha_p = 0.0127*potNS - 25.82; //formula to convert POT value to angle of the panel using Linear approximation
+    int count = 5;//number of attempts
     do{
-
-        float length_NS_p = (alpha_p - 45.96)/9.210;// Current length (in)of actuator
+        float length_NS_p = (alpha_p - 45.96)/9.210;// Current length(in) of actuator
 
         float length_NS_s = (alpha_s - 45.96)/9.210;// length (in) needed to align with sun
 
-        float delta_length_NS = length_NS_s - length_NS_p;
+        float delta_length_NS = length_NS_s - length_NS_p;//difference between the two
 
         float motorNS_time = fabs(delta_length_NS/motorNS_speed)/2;
         if (motorNS_time>180){// motor time move limit 3mins*60s/min=180s
             motorNS_time=180;
         }
         //move motors
-        //float alpha_dif=alpha_s-alpha_p;
-        if (fabs(delta_length_NS)>0.02){  //change zero to allow for alignment
+        LED_indicator('r');
+        if (fabs(delta_length_NS)>0.02){  //alignment threshold
             if (delta_length_NS<0)
                 moveN(motorNS_time*1000);
             else
                 moveS(motorNS_time*1000);
         }
+        LED_indicator('b');
+        //feedback checking
         read_sensors();
         potNS=sensorBuffer[4];
-        //POT NS range 5600-1200
         alpha_p = 0.0127*potNS - 25.82;
         count--;
     }while(fabs(alpha_p-alpha_s)>=.5 && count);
@@ -855,48 +831,44 @@ void GPS_align_panel(void){
     //beta is angle between normal vector and y-axis(+y is E, -y is W; motor2)
     read_sensors();
     int potEW=sensorBuffer[5];
-    //pot EW range 512-4130
-
-    //Linear relationship between angle and potentiometer reading
-    float beta_p = -0.0136*potEW + 118.12; //formula to convert pot value to angle of the panel
-    //find current panel position using potentiometers
+    float beta_p = -0.0136*potEW + 118.12; //formula to convert POT value to angle of the panel using Linear approximation
     count = 5;
+
     do{  //convert zenith and azimuth to Cartesian
 
         float length_EW_p = (beta_p - 63.44)/5.585;// Current length (in) of actuator
 
         float length_EW_s = (beta_s - 63.44)/5.585;// length (in) needed to align with sun
 
-        float delta_length_EW = length_EW_s - length_EW_p; // positive means retract
+        float delta_length_EW = length_EW_s - length_EW_p; // negative means retract
 
         float motorEW_time = fabs(delta_length_EW/motorEW_speed)/2;
-        if (motorEW_time>180){
+        if (motorEW_time>180){// motor time move limit 3mins*60s/min=180s
             motorEW_time=180;
         }
 
         //move motors
         //float alpha_dif=alpha_s-alpha_p;
         //float beta_dif=beta_s-beta_p;
-        if (fabs(delta_length_EW)>0.02){  //change zero to allow for alignment
+        LED_indicator('r');
+        if (fabs(delta_length_EW)>0.02){  //alignment threshold
             if (delta_length_EW<0){
-                if (length_EW_p>=1.09)
+                if (length_EW_p>=1.09)//max length of actuator
                     moveE(motorEW_time*1000);
             }
             else{
-                if (length_EW_p<=8.97)
+                if (length_EW_p<=8.97)//max length of actuator
                     moveW(motorEW_time*1000);
             }
+            LED_indicator('b');
         }
         read_sensors();
         int potEW=sensorBuffer[5];
-        //pot EW range 512-4130
-
         //Linear relationship between angle and potentiometer reading
         beta_p = -0.0136*potEW + 118.12; //formula to convert pot value to angle of the panel
         //find current panel position using potentiometers
         count--;
     }while(fabs(beta_p-beta_s)>=.3 && count);
-
     return;
 }
 
